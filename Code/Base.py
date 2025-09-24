@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import raylibpy as rl
 
-from classes import Player, Scene
+from Classes import Player, Scene
 import Input  # movimiento WASD/flechas
 
 SCREEN_W, SCREEN_H = 960, 540
