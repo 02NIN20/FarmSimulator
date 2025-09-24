@@ -18,6 +18,8 @@ Etapas proximas a entregar en el apartado gráfico:
 
     23/09/25 Helmut: Se habilito la movilidad del usuario por teclas WASD o por las flechas para definir direcciones de movimiento
 
+    24/09/25 Ezequiel: Se agregó ease-in-out al movimiento del jugador
+
 5. Acciones e interacciones:
 
     23/09/25 Helmut: Se agrego la interacción se zoom-in y zoom-out, esto asegura una de las funcionalidades más básicas del juego si alguien quiere ver a detalle el entorno o hacer un macro. Me hace la duda si esto va a terminar siendo como un stardew valley 2D o algo parecido a TBOI jajaja
