@@ -7,6 +7,8 @@ Etapas proximas a entregar en el apartado gráfico:
 
     23/09/25 Helmut: Se agregaron 4 escenarios independientes con un tamaño especifico, este puede configurarse o adaptarse, posiblemente exista una forma para adaptar la resolución respecto a la que se tenga la pantalla que deje visualizar el juego.
 
+    24/09/25 Ezequiel: Se agregó pantalla de carga, modificar para poner imagen de carga
+
 2. Interfaces 
 
 3. Elementos de escenario:
