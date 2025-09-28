@@ -8,7 +8,7 @@ La tarea que ejecuta este apartado es exponer `CameraController`, un pequeño wr
 
 from __future__ import annotations
 
-from paylib import *
+from pyray import *
 
 class CameraController:
     """Pequeño controlador para `Camera2D`.
