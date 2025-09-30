@@ -5,11 +5,11 @@ from pyray import *
 
 class Player:
 
-    def __init__(self, start_pos: Vector2, size: int = 32, speed: float = 240.0, accel_time: float = 0.15) -> None:
+    def __init__(self, start_pos: Vector2, size: int = 32, speed: float = 200.0, accel_time: float = 0.15) -> None:
         self.position = Vector2(start_pos.x, start_pos.y)
         self.size = size
-        self.base_speed = speed          # 240.0 por defecto
-        self.sprint_speed = speed * 1.8  # ~432.0 (ejemplo: 80% más rápido)
+        self.base_speed = speed      
+        self.sprint_speed = speed * 2 
         self.current_speed = self.base_speed
         
         # Estamina
@@ -55,6 +55,11 @@ class Player:
     # -----------------------------
 
     def update(self, move_axis: Vector2, is_sprinting: bool, dt: float) -> None:
+
+        """Actualiza posición a partir de un vector de movimiento normalizado."""
+        self.position.x += move_axis.x * self.base_speed * dt
+        self.position.y += move_axis.y * self.base_speed * dt
+
         mag = Player._length(move_axis)
         moving = mag > 1e-6
         
