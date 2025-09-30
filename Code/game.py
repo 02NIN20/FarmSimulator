@@ -180,8 +180,13 @@ class Game:
                 
         # --- Game updates (solo si estamos en PLAY y no estamos en overlay/loading) ---
         if self.state == STATE_PLAY and not self.loading and not self.ingame_menu_open:
-            move = input_handler.get_move_axis() 
-            self.player.update(move, dt)
+        
+        # --- CAMBIO APLICADO AQUÍ ---
+            player_input = input_handler.get_player_input()
+            
+            # Pasa el vector de movimiento y el estado de sprint al jugador
+            self.player.update(player_input.move_vector, player_input.is_sprinting, dt)
+            # -----------------------------
 
             # Zoom +/- y límites
             if is_key_down(KEY_EQUAL) or is_key_down(KEY_KP_ADD):
