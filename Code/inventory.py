@@ -1,7 +1,7 @@
 # inventory.py
 
 from __future__ import annotations
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 from pyray import *
 
 class Item:
@@ -24,11 +24,11 @@ class InventorySlot:
         return self.item is None or self.quantity <= 0
     
     def add_item(self, item: Item, amount: int = 1) -> int:
-        """Añade items al slot. Retorna la cantidad que no pudo añadir."""
+        """Añade items al slot. Retorna la cantidad que NO pudo añadir (sobrante)."""
         if self.is_empty():
             self.item = item
             self.quantity = min(amount, item.max_stack)
-            return max(0, amount - item.max_stack)
+            return max(0, amount - self.quantity)
         
         if self.item.item_id == item.item_id and item.stackable:
             space_left = item.max_stack - self.quantity
@@ -48,7 +48,7 @@ class InventorySlot:
         return removed
 
 class Inventory:
-    """Sistema de inventario principal."""
+    """Sistema de inventario con soporte de arrastrar y soltar (drag & drop)."""
     def __init__(self, rows: int = 4, cols: int = 10):
         self.rows = rows
         self.cols = cols
@@ -57,7 +57,7 @@ class Inventory:
         self.selected_slot: int = -1
         self.is_open: bool = False
         
-        # Items disponibles en el juego (puedes expandir esto)
+        # Catálogo de items (puedes extenderlo)
         self.item_database: Dict[str, Item] = {
             "seed_corn": Item("seed_corn", "Semilla de Maíz", "Semilla para cultivar maíz", Color(255, 220, 100, 255)),
             "seed_wheat": Item("seed_wheat", "Semilla de Trigo", "Semilla para cultivar trigo", Color(220, 180, 80, 255)),
@@ -68,12 +68,20 @@ class Inventory:
             "water": Item("water", "Agua", "Para regar cultivos", Color(100, 180, 255, 255)),
             "fertilizer": Item("fertilizer", "Fertilizante", "Mejora el crecimiento", Color(120, 90, 60, 255)),
         }
-    
+
+        # --- Estado para Drag & Drop ---
+        self.dragging: bool = False
+        self.drag_origin: int = -1
+        self.drag_item: Optional[Item] = None
+        self.drag_qty: int = 0
+
+    # ---------- API básica ----------
     def toggle(self):
         """Abre o cierra el inventario."""
         self.is_open = not self.is_open
         if not self.is_open:
             self.selected_slot = -1
+            self._cancel_drag()
     
     def add_item(self, item_id: str, amount: int = 1) -> bool:
         """Añade un item al inventario. Retorna True si se pudo añadir todo."""
@@ -83,7 +91,7 @@ class Inventory:
         item = self.item_database[item_id]
         remaining = amount
         
-        # Primero intenta llenar slots existentes con el mismo item
+        # Primero llena stacks existentes
         if item.stackable:
             for slot in self.slots:
                 if not slot.is_empty() and slot.item.item_id == item_id:
@@ -91,7 +99,7 @@ class Inventory:
                     if remaining <= 0:
                         return True
         
-        # Luego busca slots vacíos
+        # Luego usa slots vacíos
         for slot in self.slots:
             if slot.is_empty():
                 remaining = slot.add_item(item, remaining)
@@ -120,7 +128,8 @@ class Inventory:
             if not slot.is_empty() and slot.item.item_id == item_id:
                 total += slot.quantity
         return total >= amount
-    
+
+    # ---------- Helpers UI ----------
     def get_slot_at_position(self, mx: int, my: int, inv_x: int, inv_y: int, slot_size: int, padding: int) -> int:
         """Retorna el índice del slot en la posición del mouse, o -1 si no hay ninguno."""
         for i in range(self.total_slots):
@@ -132,9 +141,72 @@ class Inventory:
             if mx >= sx and mx <= sx + slot_size and my >= sy and my <= sy + slot_size:
                 return i
         return -1
-    
+
+    def _cancel_drag(self):
+        self.dragging = False
+        self.drag_origin = -1
+        self.drag_item = None
+        self.drag_qty = 0
+
+    def _pickup_from_slot(self, idx: int):
+        """Levanta (toma) el stack completo de un slot para arrastrarlo."""
+        if idx < 0 or idx >= self.total_slots:
+            return
+        slot = self.slots[idx]
+        if slot.is_empty():
+            return
+        self.dragging = True
+        self.drag_origin = idx
+        self.drag_item = slot.item
+        self.drag_qty = slot.quantity
+        # Vaciar slot origen mientras arrastramos
+        slot.item = None
+        slot.quantity = 0
+
+    def _drop_on_slot(self, idx: int):
+        """
+        Suelta el stack arrastrado sobre un slot.
+        - Si el slot está vacío: move.
+        - Si tiene el mismo item y stackea: merge (el sobrante vuelve al origen).
+        - Si tiene item distinto: swap con el origen.
+        """
+        if not self.dragging or self.drag_item is None or self.drag_qty <= 0:
+            return
+
+        # Drop fuera de rango -> devolver al origen
+        if idx < 0 or idx >= self.total_slots:
+            origin = self.slots[self.drag_origin]
+            _ = origin.add_item(self.drag_item, self.drag_qty)
+            self._cancel_drag()
+            return
+
+        dest = self.slots[idx]
+
+        # 1) Slot vacío -> mover todo
+        if dest.is_empty():
+            _ = dest.add_item(self.drag_item, self.drag_qty)
+            self._cancel_drag()
+            return
+
+        # 2) Mismo item y stackeable -> merge
+        if dest.item and dest.item.item_id == self.drag_item.item_id and self.drag_item.stackable:
+            leftover = dest.add_item(self.drag_item, self.drag_qty)
+            if leftover > 0:
+                origin = self.slots[self.drag_origin]
+                _ = origin.add_item(self.drag_item, leftover)
+            self._cancel_drag()
+            return
+
+        # 3) Item distinto -> swap con origen
+        origin = self.slots[self.drag_origin]
+        dest_item, dest_qty = dest.item, dest.quantity
+        dest.item, dest.quantity = self.drag_item, self.drag_qty
+        origin.item, origin.quantity = dest_item, dest_qty
+        self._cancel_drag()
+
+    # ---------- Dibujo ----------
     def draw(self, screen_w: int, screen_h: int):
-        """Dibuja la interfaz del inventario."""
+        """Dibuja la interfaz del inventario con soporte de arrastrar y soltar."""
         if not self.is_open:
             return
         
@@ -161,16 +233,22 @@ class Inventory:
         title_width = measure_text(title_text, title_font)
         draw_text(title_text, inv_x + (inv_width - title_width) // 2, inv_y - 30, title_font, Color(255, 240, 200, 255))
         
-        # Obtener posición del mouse
+        # Mouse
         mouse_pos = get_mouse_position()
         mx, my = int(mouse_pos.x), int(mouse_pos.y)
         hovered_slot = self.get_slot_at_position(mx, my, inv_x, inv_y, slot_size, padding)
-        
-        # Detectar clicks
-        if is_mouse_button_pressed(MOUSE_LEFT_BUTTON) and hovered_slot >= 0:
-            self.selected_slot = hovered_slot if self.selected_slot != hovered_slot else -1
-        
-        # Dibujar slots
+
+        # --- Iniciar drag con click izquierdo sobre un slot con item ---
+        if is_mouse_button_pressed(MOUSE_LEFT_BUTTON) and not self.dragging and hovered_slot >= 0:
+            if not self.slots[hovered_slot].is_empty():
+                self._pickup_from_slot(hovered_slot)
+                self.selected_slot = -1  # limpiamos selección previa
+
+        # --- Soltar stack (drop) al liberar click izquierdo ---
+        if is_mouse_button_released(MOUSE_LEFT_BUTTON) and self.dragging:
+            self._drop_on_slot(hovered_slot)
+
+        # --- Dibujar slots ---
         for i in range(self.total_slots):
             row = i // self.cols
             col = i % self.cols
@@ -179,7 +257,7 @@ class Inventory:
             
             # Color del slot
             slot_color = Color(80, 70, 60, 255)
-            if i == hovered_slot:
+            if i == hovered_slot and not self.dragging:
                 slot_color = Color(100, 90, 80, 255)
             if i == self.selected_slot:
                 slot_color = Color(120, 200, 255, 255)
@@ -187,10 +265,9 @@ class Inventory:
             draw_rectangle(sx, sy, slot_size, slot_size, slot_color)
             draw_rectangle_lines(sx, sy, slot_size, slot_size, Color(40, 35, 30, 255))
             
-            # Dibujar item si existe
+            # Dibujar item si existe (nota: si es origen y estamos arrastrando, quedó vacío)
             slot = self.slots[i]
             if not slot.is_empty():
-                # Icono del item (simple rectángulo coloreado)
                 icon_size = int(slot_size * 0.7)
                 icon_x = sx + (slot_size - icon_size) // 2
                 icon_y = sy + (slot_size - icon_size) // 2
@@ -202,26 +279,36 @@ class Inventory:
                     qty_text = str(slot.quantity)
                     qty_font = max(12, int(slot_size * 0.25))
                     draw_text(qty_text, sx + slot_size - measure_text(qty_text, qty_font) - 4, 
-                             sy + slot_size - qty_font - 2, qty_font, WHITE)
-        
-        # Tooltip del item hovereado
-        if hovered_slot >= 0 and not self.slots[hovered_slot].is_empty():
+                              sy + slot_size - qty_font - 2, qty_font, WHITE)
+
+        # --- Tooltip del item hovereado (ESTILO ANTERIOR restaurado) ---
+        if not self.dragging and hovered_slot >= 0 and not self.slots[hovered_slot].is_empty():
             item = self.slots[hovered_slot].item
             tooltip_font = max(14, int(screen_h * 0.02))
-            
+
+            # Dimensiones y posición con límites de pantalla
             tooltip_w = max(200, measure_text(item.description, tooltip_font) + 20)
             tooltip_h = 60
             tooltip_x = min(mx + 15, screen_w - tooltip_w - 10)
             tooltip_y = min(my + 15, screen_h - tooltip_h - 10)
-            
+
+            # Fondo y borde ámbar (look & feel anterior)
             draw_rectangle(tooltip_x, tooltip_y, tooltip_w, tooltip_h, Color(40, 35, 30, 240))
             draw_rectangle_lines(tooltip_x, tooltip_y, tooltip_w, tooltip_h, Color(200, 180, 140, 255))
+
+            # Título (ámbar claro) + descripción (blanco cálido)
             draw_text(item.name, tooltip_x + 10, tooltip_y + 8, tooltip_font + 2, Color(255, 230, 150, 255))
             draw_text(item.description, tooltip_x + 10, tooltip_y + 30, tooltip_font, Color(220, 220, 220, 255))
-        
-        # Instrucciones
-        inst_font = max(12, int(screen_h * 0.018))
-        inst_text = "Presiona [I] para cerrar | Click para seleccionar item"
-        inst_width = measure_text(inst_text, inst_font)
-        draw_text(inst_text, inv_x + (inv_width - inst_width) // 2, 
-                 inv_y + inv_height - 30, inst_font, Color(200, 200, 200, 255))
+
+        # --- Sombra del item que se arrastra (siguiendo el mouse) ---
+        if self.dragging and self.drag_item is not None and self.drag_qty > 0:
+            icon_size = int(slot_size * 0.7)
+            ix = mx - icon_size // 2
+            iy = my - icon_size // 2
+            draw_rectangle(ix, iy, icon_size, icon_size, self.drag_item.icon_color)
+            draw_rectangle_lines(ix, iy, icon_size, icon_size, BLACK)
+            if self.drag_qty > 1:
+                qty_text = str(self.drag_qty)
+                qty_font = max(12, int(slot_size * 0.25))
+                draw_text(qty_text, ix + icon_size - measure_text(qty_text, qty_font) - 2,
+                          iy + icon_size - qty_font - 2, qty_font, WHITE)
