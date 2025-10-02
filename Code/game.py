@@ -4,11 +4,13 @@ from __future__ import annotations
 from pyray import *
 from player import Player
 from scene import Scene
-import input_handler # Asumimos que esta es la función get_player_input modificada
+import input_handler
 import ui_helpers
+from inventory import Inventory
+from map_system import MapSystem
 from typing import Optional
 
-# Definiciones de constantes (se mantienen igual)
+# Definiciones de constantes
 RESOLUTIONS = [
     (1920, 1080),
     (1600, 900),
@@ -23,7 +25,7 @@ FADE_TIME = 0.5
 HOLD_TIME = max(0.0, TRANSITION_TIME - 2.0 * FADE_TIME)
 LOADING_IMAGE_PATH: str | None = None
 
-# Estados del juego (se mantienen igual)
+# Estados del juego
 STATE_MAIN_MENU = "MAIN_MENU"
 STATE_CONFIG = "CONFIG"
 STATE_PLAY = "PLAY"
@@ -40,7 +42,7 @@ class Game:
         self.scene_w, self.scene_h = self.screen_w * 5, self.screen_h * 5
         
         # Inicialización de Raylib
-        init_window(self.screen_w, self.screen_h, "Juego con Menú y Sliders (UI adaptativa, escala fija)")
+        init_window(self.screen_w, self.screen_h, "Juego NASA Space Apps 2025")
         set_target_fps(60)
 
         # Estados
@@ -58,10 +60,16 @@ class Game:
         self.active_scene_index = 0
         self.player = Player(self._scene_center(self.scenes[self.active_scene_index]))
         
-        # *** NUEVOS ATRIBUTOS PARA EL CONTROL POINT-AND-CLICK ***
-        # El destino del jugador ahora se almacena en la clase Player.
-        # Aquí solo aseguramos que el input handler pueda acceder a la posición inicial.
-        # El input handler usará self.player.position y self.player.destination (que existe en la clase Player modificada)
+        # *** NUEVOS SISTEMAS: INVENTARIO Y MAPA ***
+        self.inventory = Inventory(rows=4, cols=10)
+        self.map_system = MapSystem(total_scenes=len(self.scenes))
+        
+        # Añadir items iniciales al inventario (para probar)
+        self.inventory.add_item("seed_corn", 10)
+        self.inventory.add_item("seed_wheat", 5)
+        self.inventory.add_item("water", 20)
+        self.inventory.add_item("fertilizer", 8)
+        # ******************************************
 
         # Cámara
         self.camera = Camera2D()
@@ -70,7 +78,7 @@ class Game:
         self.camera.rotation = 0.0
         self.camera.zoom = 1.0
 
-        # UI State (volúmenes, dropdown de resolución)
+        # UI State
         self.ui_state = {
             "music_volume": 0.8,
             "sfx_volume": 0.9,
@@ -83,8 +91,7 @@ class Game:
         self.loading_texture: Optional[Texture2D] = None 
         self._load_assets()
 
-
-    # --- Setup Helpers (sin cambios) ---
+    # --- Setup Helpers ---
 
     def _update_camera_offset(self) -> None:
         """Actualiza el offset de la cámara al centro de la pantalla."""
@@ -96,7 +103,7 @@ class Game:
         return Scene(scene_id, size, color, spawn)
 
     def _create_scenes(self) -> list[Scene]:
-        """Recrea todas las escenas (útil al cambiar resolución)."""
+        """Recrea todas las escenas."""
         return [
             self._make_scene(1, Color(70, 120, 200, 255)),
             self._make_scene(2, Color(200, 120, 70, 255)),
@@ -108,12 +115,10 @@ class Game:
         return Vector2(scene.size.x * 0.5, scene.size.y * 0.5)
 
     def _load_assets(self) -> None:
-        # Ensure that if the path is None, the attribute remains None (which is the default)
         if LOADING_IMAGE_PATH is not None:
             try:
                 self.loading_texture = load_texture(LOADING_IMAGE_PATH)
             except Exception:
-                # If loading fails, explicitly set it to None
                 print(f"Error loading texture from: {LOADING_IMAGE_PATH}")
                 self.loading_texture = None
 
@@ -121,7 +126,6 @@ class Game:
         if self.loading_texture is not None:
             unload_texture(self.loading_texture)
             self.loading_texture = None
-
 
     # --- Game Loop Methods ---
 
@@ -136,9 +140,32 @@ class Game:
         self._unload_assets()
         close_window()
 
-
     def _handle_input(self) -> None:
-        """Gestiona las entradas de usuario que afectan al estado del juego."""
+        """Gestiona las entradas de usuario."""
+        
+        # DEBUG: Imprimir cuando se presionan teclas
+        if is_key_pressed(KEY_I):
+            print("Tecla I presionada")
+            print(f"Estado: {self.state}, Loading: {self.loading}")
+        if is_key_pressed(KEY_M):
+            print("Tecla M presionada")
+            print(f"Estado: {self.state}, Loading: {self.loading}")
+        
+        # *** MANEJO DE INVENTARIO Y MAPA ***
+        # Tecla I para inventario
+        if self.state == STATE_PLAY and not self.loading:
+            if is_key_pressed(KEY_I):
+                if self.map_system.is_open:
+                    self.map_system.is_open = False
+                self.inventory.toggle()
+        
+        # Tecla M para mapa
+        if self.state == STATE_PLAY and not self.loading:
+            if is_key_pressed(KEY_M):
+                if self.inventory.is_open:
+                    self.inventory.is_open = False
+                self.map_system.toggle()
+        # ***********************************
         
         # ESC behavior
         if is_key_pressed(KEY_ESCAPE):
@@ -148,15 +175,23 @@ class Game:
                 self.state = STATE_MAIN_MENU
                 self.ui_state["res_dropdown_open"] = False
             elif self.state == STATE_PLAY:
-                # Toggle menu in-game
-                self.ingame_menu_open = not self.ingame_menu_open
+                if self.inventory.is_open:
+                    self.inventory.is_open = False
+                elif self.map_system.is_open:
+                    self.map_system.is_open = False
+                else:
+                    self.ingame_menu_open = not self.ingame_menu_open
 
-        # Input global para abrir/cerrar menú in-game con 'P'
+        # P para menú in-game
         if self.state == STATE_PLAY and is_key_pressed(KEY_P):
-            self.ingame_menu_open = not self.ingame_menu_open
+            if self.inventory.is_open or self.map_system.is_open:
+                self.inventory.is_open = False
+                self.map_system.is_open = False
+            else:
+                self.ingame_menu_open = not self.ingame_menu_open
             
-        # Hotkeys de cambio de escena (solo en PLAY y no en menú/carga)
-        if self.state == STATE_PLAY and not self.loading and not self.ingame_menu_open:
+        # Cambio de escena con teclas 1-4
+        if self.state == STATE_PLAY and not self.loading and not self.ingame_menu_open and not self.inventory.is_open and not self.map_system.is_open:
             requested = -1
             if is_key_pressed(KEY_ONE) or is_key_pressed(KEY_KP_1): requested = 0
             elif is_key_pressed(KEY_TWO) or is_key_pressed(KEY_KP_2): requested = 1
@@ -166,59 +201,41 @@ class Game:
             if requested != -1 and requested != self.active_scene_index:
                 self._start_loading(requested, STATE_PLAY)
 
-
     def _update(self, dt: float) -> None:
         """Lógica de actualización del juego."""
 
-        # --- Transition update ---
+        # Transition update
         if self.loading:
             self.trans_elapsed += dt
             if (not self.swapped) and (self.trans_elapsed >= FADE_TIME):
                 if self.target_scene is not None:
                     self.active_scene_index = self.target_scene
-                    # Reposicionar jugador y cámara
                     self.player.position = self._scene_center(self.scenes[self.active_scene_index])
-                    # *** MANTENER EL DESTINO SINCORNIZADO AL CAMBIAR DE ESCENA ***
                     self.player.destination = self.player.position 
-                    # *************************************************************
                     self.camera.target = Vector2(self.player.position.x, self.player.position.y)
                 self.swapped = True
             if self.trans_elapsed >= TRANSITION_TIME:
                 self._end_loading()
                 self.state = self.post_load_state
                 
-        # --- Game updates (solo si estamos en PLAY y no estamos en overlay/loading) ---
-        if self.state == STATE_PLAY and not self.loading and not self.ingame_menu_open:
-        
-            # *** CAMBIO CLAVE PARA POINT-AND-CLICK ***
+        # Game updates (solo sin overlays)
+        if self.state == STATE_PLAY and not self.loading and not self.ingame_menu_open and not self.inventory.is_open and not self.map_system.is_open:
             
-            # Obtener la posición del ratón en coordenadas del mundo, ya que la cámara está activa.
-            # get_screen_to_world2d es esencial para transformar la posición del mouse de pantalla a mundo.
             mouse_world_pos = get_screen_to_world_2d(get_mouse_position(), self.camera)
-            
-            # Llamar al input handler: debe recibir la posición del jugador Y el destino guardado.
             player_input = input_handler.get_player_input(self.player.position, self.player.destination, mouse_world_pos)
-            
-            # Pasar TODO el NamedTuple de entrada al jugador
             self.player.update(player_input, dt)
-            # ****************************************
 
-            # Zoom +/- y límites
+            # Zoom
             if is_key_down(KEY_EQUAL) or is_key_down(KEY_KP_ADD):
                 self.camera.zoom += 1.0 * dt
             if is_key_down(KEY_MINUS) or is_key_down(KEY_KP_SUBTRACT):
                 self.camera.zoom -= 1.0 * dt
             self.camera.zoom = max(MIN_ZOOM, min(MAX_ZOOM, self.camera.zoom))
 
-            # La cámara sigue al jugador
             self.camera.target = Vector2(self.player.position.x, self.player.position.y)
-            
-        # Nota: La lógica de audio (SetMusicVolume/SetSoundVolume) debería ir aquí
-        # si quieres que los sliders afecten el volumen en tiempo real.
-
 
     def _start_loading(self, target_scene_index: int, next_state: str) -> None:
-        """Inicia el proceso de transición de carga."""
+        """Inicia transición de carga."""
         self.loading = True
         self.trans_elapsed = 0.0
         self.target_scene = target_scene_index
@@ -227,14 +244,13 @@ class Game:
         self.state = STATE_LOADING
         
     def _end_loading(self) -> None:
-        """Finaliza el proceso de transición."""
+        """Finaliza transición."""
         self.loading = False
         self.trans_elapsed = 0.0
         self.target_scene = None
         self.swapped = False
 
-
-    # --- Drawing Methods (sin cambios) ---
+    # --- Drawing Methods ---
 
     def _draw(self) -> None:
         """Lógica de dibujo."""
@@ -258,10 +274,6 @@ class Game:
 
         end_drawing()
 
-
-    # ... (Todos los métodos _draw_main_menu, _draw_config_menu, _apply_resolution, _draw_play_state, _draw_loading_overlay se mantienen igual) ...
-    # --- Drawing Methods (separados por estado) ---
-
     def _draw_main_menu(self, ui_dims: dict, fsz) -> None:
         """Dibuja el menú principal."""
         left_margin = ui_dims["left_margin"]
@@ -269,25 +281,22 @@ class Game:
         bh = ui_dims["main_button_h"]
         x = left_margin
         
-        draw_text("Mi Juego - Menú Principal", left_margin, 40, fsz(28), DARKGRAY)
+        draw_text("Mi Juego - Menu Principal", left_margin, 40, fsz(28), DARKGRAY)
 
         padding_bottom = int(self.screen_h * 0.04)
         gap = int(max(8, 12 * (self.screen_h / ui_helpers.REF_H)))
         start_y = self.screen_h - padding_bottom - (bh * 3 + gap * 2)
 
-        # Botón Iniciar
         if ui_helpers.draw_button_left(x, start_y + 0 * (bh + gap), bw, bh, "Iniciar", font_size=fsz(20)):
             self._start_loading(self.active_scene_index, STATE_PLAY)
 
-        # Botón Configuración
-        if ui_helpers.draw_button_left(x, start_y + 1 * (bh + gap), bw, bh, "Configuración", font_size=fsz(20)):
+        if ui_helpers.draw_button_left(x, start_y + 1 * (bh + gap), bw, bh, "Configuracion", font_size=fsz(20)):
             self.state = STATE_CONFIG
 
-        # Botón Salir
         if ui_helpers.draw_button_left(x, start_y + 2 * (bh + gap), bw, bh, "Salir", font_size=fsz(20)):
             self.running = False
             
-        draw_text("Aquí irá la imagen/fondo del menú.", left_margin, start_y - 30, fsz(14), GRAY)
+        draw_text("Aqui ira la imagen/fondo del menu.", left_margin, start_y - 30, fsz(14), GRAY)
 
     def _draw_config_menu(self, ui_dims: dict, fsz) -> None:
         """Dibuja el menú de configuración."""
@@ -296,49 +305,41 @@ class Game:
         block_y = 110
         gap_y = int(max(8, 12 * (self.screen_h / ui_helpers.REF_H)))
         
-        draw_text("Configuración", left_margin, 28, fsz(28), DARKGRAY)
-        draw_text("Resolución", left_margin, 68, fsz(22), DARKGRAY)
+        draw_text("Configuracion", left_margin, 28, fsz(28), DARKGRAY)
+        draw_text("Resolucion", left_margin, 68, fsz(22), DARKGRAY)
 
-        # Dropdown de Resolución
         res_btn_w = ui_dims["button_w"]
         res_btn_h = ui_dims["button_h"]
-        label = f"Resolución: {RESOLUTIONS[self.res_index][0]} × {RESOLUTIONS[self.res_index][1]}"
+        label = f"Resolucion: {RESOLUTIONS[self.res_index][0]} x {RESOLUTIONS[self.res_index][1]}"
         hovered, clicked = ui_helpers.button_left_rect(block_x, block_y, res_btn_w, res_btn_h, label, font_size=fsz(20))
         if clicked:
             self.ui_state["res_dropdown_open"] = not self.ui_state["res_dropdown_open"]
 
-        # Listado de resoluciones si está desplegado
-        current_res_index = self.res_index # Guardamos el índice actual antes de la iteración
         if self.ui_state["res_dropdown_open"]:
             for i, (w, h) in enumerate(RESOLUTIONS):
                 item_y = block_y + (i + 1) * (res_btn_h + 6)
-                text_label = f"{w} × {h}"
+                text_label = f"{w} x {h}"
                 hovered_item, clicked_item = ui_helpers.button_left_rect(block_x, item_y, res_btn_w, res_btn_h, text_label, font_size=fsz(18))
                 if clicked_item:
                     self.res_index = i
                     self.ui_state["res_dropdown_open"] = False
                     
-        # Sliders
         sl_start_y = block_y + (len(RESOLUTIONS) + 1) * (res_btn_h + 6) if self.ui_state["res_dropdown_open"] else block_y + (res_btn_h + 2 * gap_y)
         slider_w = ui_dims["slider_w"]
         slider_h = ui_dims["slider_h"]
 
-        # Música
-        draw_text("Volumen Música", block_x, sl_start_y, fsz(20), DARKGRAY)
+        draw_text("Volumen Musica", block_x, sl_start_y, fsz(20), DARKGRAY)
         music_slider_y = sl_start_y + int(28 * (self.screen_h / ui_helpers.REF_H))
         self.ui_state["music_volume"] = ui_helpers.slider_horizontal(block_x, music_slider_y, slider_w, max(12, int(slider_h * 2)), self.ui_state["music_volume"], "music_dragging", self.ui_state)
 
-        # Efectos
         sfx_y = music_slider_y + max(12, int(slider_h * 2)) + int(28 * (self.screen_h / ui_helpers.REF_H))
         draw_text("Volumen Efectos", block_x, sfx_y, fsz(20), DARKGRAY)
         sfx_slider_y = sfx_y + int(28 * (self.screen_h / ui_helpers.REF_H))
         self.ui_state["sfx_volume"] = ui_helpers.slider_horizontal(block_x, sfx_slider_y, slider_w, max(12, int(slider_h * 2)), self.ui_state["sfx_volume"], "sfx_dragging", self.ui_state)
 
-        # Botones Aplicar / Volver
         btn_w = int(ui_dims["button_w"] * 0.6)
         btn_h = ui_dims["button_h"]
         by = self.screen_h - int(self.screen_h * 0.06) - btn_h
-        
         gap_btn = int(12 * (self.screen_w / ui_helpers.REF_H))
         
         if ui_helpers.draw_button_left(block_x, by, btn_w, btn_h, "Aplicar", font_size=fsz(20)):
@@ -349,34 +350,35 @@ class Game:
             self.ui_state["res_dropdown_open"] = False
 
     def _apply_resolution(self) -> None:
-        """Aplica la resolución seleccionada y recalcula el mundo."""
+        """Aplica la resolución seleccionada."""
         new_w, new_h = RESOLUTIONS[self.res_index]
         if new_w != self.screen_w or new_h != self.screen_h:
             self.screen_w, self.screen_h = new_w, new_h
             self.scene_w, self.scene_h = new_w, new_h
             set_window_size(self.screen_w, self.screen_h)
             
-            # Recrear escenas (destruye las antiguas y crea nuevas con el nuevo tamaño)
             self.scenes = self._create_scenes()
-            # Reposicionar player y actualizar cámara
+            self.map_system = MapSystem(total_scenes=len(self.scenes))
             self.player.position = self._scene_center(self.scenes[self.active_scene_index])
             self._update_camera_offset()
             self.camera.target = Vector2(self.player.position.x, self.player.position.y)
 
-
     def _draw_play_state(self, ui_dims: dict, fsz) -> None:
-        """Dibuja el estado de juego (escena, player) y el menú in-game si está abierto."""
+        """Dibuja el estado de juego."""
         
-        # Dibujar escena y jugador (con cámara)
         begin_mode_2d(self.camera)
         self.scenes[self.active_scene_index].draw()
         self.player.draw()
         end_mode_2d()
 
-        # HUD (left-aligned)
-        draw_text("En juego - presiona P para menú", ui_dims["left_margin"], 10, fsz(18), DARKGRAY)
+        hud_text = "En juego - [P] Menu | [I] Inventario | [M] Mapa"
+        draw_text(hud_text, ui_dims["left_margin"], 10, fsz(18), DARKGRAY)
 
-        # Menú In-game Overlay
+        # *** DIBUJAR INVENTARIO Y MAPA ***
+        self.inventory.draw(self.screen_w, self.screen_h)
+        self.map_system.draw(self.screen_w, self.screen_h, self.active_scene_index)
+        # *********************************
+
         if self.ingame_menu_open:
             draw_rectangle(0, 0, self.screen_w, self.screen_h, Color(0, 0, 0, 160))
             
@@ -384,7 +386,6 @@ class Game:
             bh = ui_dims["button_h"]
             x = ui_dims["left_margin"]
             gap = int(max(8, 12 * (self.screen_h / ui_helpers.REF_H)))
-            # Centrado verticalmente
             total_h = bh * 3 + gap * 2
             cy = self.screen_h // 2 - total_h // 2
             
@@ -392,7 +393,6 @@ class Game:
                 self.ingame_menu_open = False
                 
             if ui_helpers.draw_button_left(x, cy + 1 * (bh + gap), bw, bh, "Menu Principal", font_size=fsz(20)):
-                # Iniciar la carga para ir al menú
                 self.ingame_menu_open = False
                 self._start_loading(self.active_scene_index, STATE_MAIN_MENU)
                 
@@ -400,18 +400,17 @@ class Game:
                 self.running = False
 
     def _draw_loading_overlay(self, fsz) -> None:
-        """Dibuja el overlay de transición de carga."""
+        """Dibuja el overlay de transición."""
         if not self.loading:
             return
 
-        # Calcula alpha del fade (0..255)
         if self.trans_elapsed < FADE_TIME:
-            alpha = int((self.trans_elapsed / FADE_TIME) * 255)  # fade-out: 0 -> 255
+            alpha = int((self.trans_elapsed / FADE_TIME) * 255)
         elif self.trans_elapsed < FADE_TIME + HOLD_TIME:
-            alpha = 255  # hold
+            alpha = 255
         elif self.trans_elapsed < TRANSITION_TIME:
             t = (self.trans_elapsed - FADE_TIME - HOLD_TIME) / FADE_TIME
-            alpha = int((1.0 - t) * 255)  # fade-in: 255 -> 0
+            alpha = int((1.0 - t) * 255)
         else:
             alpha = 0
         alpha = max(0, min(255, alpha))
@@ -419,7 +418,6 @@ class Game:
         draw_rectangle(0, 0, self.screen_w, self.screen_h, Color(30, 30, 30, alpha))
 
         if self.loading_texture is not None:
-            # Lógica para dibujar la textura de carga
             tex_w = self.loading_texture.width
             tex_h = self.loading_texture.height
             scale = min(self.screen_w / tex_w, self.screen_h / tex_h)
