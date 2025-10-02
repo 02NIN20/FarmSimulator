@@ -3,7 +3,6 @@
 from pyray import *
 from typing import NamedTuple
 
-# input_handler.py (or wherever PlayerInput is defined)
 class PlayerInput(NamedTuple):
     move_vector: Vector2
     is_sprinting: bool
@@ -18,7 +17,7 @@ def get_player_input(current_player_position: Vector2, current_destination: Vect
     
     # 1. Detección de clic derecho (para establecer un nuevo destino)
     if is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
-        destination = mouse_world_pos  # Usamos la posición del mouse ya transformada a coordenadas de mundo
+        destination = mouse_world_pos
         
     # 2. Determinar si hay un destino y calcular el vector
     distance_to_destination = vector2_distance(current_player_position, destination)
@@ -29,12 +28,9 @@ def get_player_input(current_player_position: Vector2, current_destination: Vect
     move_vec = Vector2(0.0, 0.0)
     
     if has_destination:
-        # Vector desde la posición actual hasta el destino
         move_vec = vector2_subtract(destination, current_player_position)
-        # Normalizar el vector para obtener solo la dirección
         move_vec = vector2_normalize(move_vec)
     else:
-        # Si ya llegamos, aseguramos que el destino sea la posición actual para detenernos
         destination = current_player_position 
 
     # 3. Detección de Sprint
