@@ -1,38 +1,43 @@
+# input_handler.py
+
 from pyray import *
 from typing import NamedTuple
 
-# Usaremos un NamedTuple para devolver la intención del jugador de forma clara.
-# Podrías usar un diccionario o una clase, pero NamedTuple es más ligero.
+# input_handler.py (or wherever PlayerInput is defined)
 class PlayerInput(NamedTuple):
     move_vector: Vector2
     is_sprinting: bool
+    has_destination: bool
+    destination_point: Vector2
 
-def get_player_input() -> PlayerInput:
-    """Devuelve el vector de movimiento normalizado y el estado de sprint."""
-    x = 0
-    y = 0
+def get_player_input(current_player_position: Vector2, current_destination: Vector2, mouse_world_pos: Vector2) -> PlayerInput:
+    """
+    Calcula la intención del jugador (clic para mover) en coordenadas de mundo.
+    """
+    destination = current_destination
     
-    # 1. Detección de movimiento
-    if is_key_down(KEY_A) or is_key_down(KEY_LEFT):
-        x -= 1
-    if is_key_down(KEY_D) or is_key_down(KEY_RIGHT):
-        x += 1
-    if is_key_down(KEY_W) or is_key_down(KEY_UP):
-        y -= 1
-    if is_key_down(KEY_S) or is_key_down(KEY_DOWN):
-        y += 1
+    # 1. Detección de clic derecho (para establecer un nuevo destino)
+    if is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+        destination = mouse_world_pos  # Usamos la posición del mouse ya transformada a coordenadas de mundo
         
-    # 2. Detección de Sprint (se requiere movimiento y la tecla SHIFT)
-    is_moving = (x != 0 or y != 0)
-    is_sprinting = is_moving and (is_key_down(KEY_LEFT_SHIFT) or is_key_down(KEY_RIGHT_SHIFT))
-
+    # 2. Determinar si hay un destino y calcular el vector
+    distance_to_destination = vector2_distance(current_player_position, destination)
+    TOLERANCE = 5.0
+    
+    has_destination = distance_to_destination > TOLERANCE
+    
     move_vec = Vector2(0.0, 0.0)
-    if is_moving:
-        move_vec = Vector2(float(x), float(y))
-        length = ((move_vec.x * move_vec.x) + (move_vec.y * move_vec.y)) ** 0.5
-        
-        if length > 1e-6:
-            move_vec.x /= length
-            move_vec.y /= length
+    
+    if has_destination:
+        # Vector desde la posición actual hasta el destino
+        move_vec = vector2_subtract(destination, current_player_position)
+        # Normalizar el vector para obtener solo la dirección
+        move_vec = vector2_normalize(move_vec)
+    else:
+        # Si ya llegamos, aseguramos que el destino sea la posición actual para detenernos
+        destination = current_player_position 
 
-    return PlayerInput(move_vec, is_sprinting)
+    # 3. Detección de Sprint
+    is_sprinting = is_key_down(KEY_LEFT_SHIFT)
+    
+    return PlayerInput(move_vec, is_sprinting, has_destination, destination)

@@ -1,40 +1,50 @@
+# player.py
+
 from __future__ import annotations
 import math
-from typing import Dict, Tuple, Optional
-from pyray import *
+from typing import NamedTuple, Dict, Tuple, Optional
+
+# 💡 FIX: Importar el módulo pyray por nombre para poder usar pyray.Fade()
+import pyray 
+from pyray import * # Usamos un NamedTuple modificado para el input del jugador
+class PlayerInput(NamedTuple):
+    move_vector: Vector2 # Vector normalizado (dirección al destino)
+    is_sprinting: bool
+    has_destination: bool
+    destination_point: Vector2
 
 class Player:
 
-    def __init__(self, start_pos: Vector2, size: int = 32, speed: float = 200.0, accel_time: float = 0.15) -> None:
+    def __init__(self, start_pos: Vector2, size: int = 32, speed: float = 240.0, accel_time: float = 0.15) -> None:
         self.position = Vector2(start_pos.x, start_pos.y)
         self.size = size
         self.base_speed = speed      
         self.sprint_speed = speed * 2 
         self.current_speed = self.base_speed
         
+        # Atributos de Navegación Point-and-Click
+        self.destination = Vector2(start_pos.x, start_pos.y) # Punto al que se dirige el jugador
+        self.TOLERANCE = 5.0 # Distancia para considerar que ha llegado al destino
+        
         # Estamina
         self.max_stamina = 100.0
         self.stamina = self.max_stamina
-        self.stamina_drain_rate = 30.0   # Costo por segundo al esprintar
-        self.stamina_regen_rate = 15.0   # Regeneración por segundo
-        self.min_stamina_for_sprint = 5.0 # Estamina mínima para iniciar
+        self.stamina_drain_rate = 30.0
+        self.stamina_regen_rate = 15.0
+        self.min_stamina_for_sprint = 5.0
         
-        self._dir = Vector2(0.0, 0.0)
-        self._progress = 0.0
+        self._dir = Vector2(0.0, 0.0) # Dirección de movimiento deseada (hacia el destino)
+        self._progress = 0.0          # Progreso de aceleración/desaceleración
         self.accel_time = max(1e-4, accel_time)
-        self._velocity = Vector2(0.0, 0.0)
+        self._velocity = Vector2(0.0, 0.0) # Velocidad actual del jugador (usada en el draw)
 
     # --- Static Helper Methods ---
-    # These methods must be defined inside the class for Player._length to work.
-
     @staticmethod
     def _length(v: Vector2) -> float:
-        """Calcula la magnitud (longitud) de un vector."""
         return math.hypot(v.x, v.y)
 
     @staticmethod
     def _normalize(v: Vector2) -> Vector2:
-        """Normaliza un vector para que su longitud sea 1."""
         l = Player._length(v)
         if l > 1e-9:
             return Vector2(v.x / l, v.y / l)
@@ -42,7 +52,6 @@ class Player:
 
     @staticmethod
     def _dot(a: Vector2, b: Vector2) -> float:
-        """Calcula el producto punto de dos vectores."""
         return a.x * b.x + a.y * b.y
 
     @staticmethod
@@ -51,38 +60,51 @@ class Player:
         if t <= 0.0: return 0.0
         if t >= 1.0: return 1.0
         return t * t * (3.0 - 2.0 * t)
-
     # -----------------------------
 
-    def update(self, move_axis: Vector2, is_sprinting: bool, dt: float) -> None:
-
-        """Actualiza posición a partir de un vector de movimiento normalizado."""
-        self.position.x += move_axis.x * self.base_speed * dt
-        self.position.y += move_axis.y * self.base_speed * dt
-
-        mag = Player._length(move_axis)
-        moving = mag > 1e-6
+    def update(self, input_data: PlayerInput, dt: float) -> None:
         
-        # --- Lógica de Sprint y Estamina ---
-        # Note: can_sprint check (stamina > 0.0) is redundant since min_stamina_for_sprint is checked below.
+        # 1. Procesar el Destino del Mouse
+        # Si el input handler detectó un clic, actualiza el destino
+        if input_data.has_destination:
+            self.destination = input_data.destination_point
+            
+        distance_to_dest = Player._length(vector2_subtract(self.destination, self.position))
         
-        # El jugador está esprintando si lo intenta, puede hacerlo y se está moviendo.
-        is_actually_sprinting = is_sprinting and moving and (self.stamina >= self.min_stamina_for_sprint)
+        # 2. Lógica de Navegación y Parada
+        if distance_to_dest > self.TOLERANCE:
+            # El jugador debe moverse
+            moving = True
+            
+            # Calcular la dirección normalizada hacia el destino
+            move_axis = Player._normalize(vector2_subtract(self.destination, self.position))
+        else:
+            # El jugador ha llegado al destino, detenerse
+            moving = False
+            move_axis = Vector2(0.0, 0.0)
+            self.destination = self.position # Reiniciar el destino al punto actual
+        
+        # 3. Lógica de Sprint y Estamina
+        is_sprinting_attempt = input_data.is_sprinting
+        
+        is_actually_sprinting = is_sprinting_attempt and moving and (self.stamina >= self.min_stamina_for_sprint)
         
         if is_actually_sprinting:
             self.current_speed = self.sprint_speed
             self.stamina = max(0.0, self.stamina - self.stamina_drain_rate * dt)
         else:
             self.current_speed = self.base_speed
-            # Regeneración (si no estamos esprintando y no estamos al máximo)
+            # Regeneración
             if self.stamina < self.max_stamina:
                 self.stamina = min(self.max_stamina, self.stamina + self.stamina_regen_rate * dt)
         # -----------------------------------
 
+        # 4. Lógica de Aceleración (Easing)
+
         if moving:
-            new_dir = Player._normalize(move_axis)
+            new_dir = move_axis
             
-            # Lógica para evitar el tambaleo (basada en la última corrección)
+            # Lógica para evitar el tambaleo/inversión de aceleración
             if Player._length(self._dir) > 1e-6 and Player._dot(new_dir, self._dir) < -0.1:
                 self._progress = 0.0
             
@@ -94,7 +116,8 @@ class Player:
         self._progress = max(0.0, min(1.0, self._progress))
         speed_mult = Player.ease_in_out(self._progress)
         
-        # Usar self.current_speed
+        # 5. Aplicar Velocidad y Actualizar Posición
+        
         vx = self._dir.x * self.current_speed * speed_mult
         vy = self._dir.y * self.current_speed * speed_mult
         self._velocity.x = vx
@@ -109,7 +132,10 @@ class Player:
         y = int(self.position.y - self.size / 2)
         draw_rectangle(x, y, self.size, self.size, Color(200, 50, 50, 255))
         
-        # Dibujar barra de estamina (ejemplo simple en HUD del jugador)
+        # Dibuja el círculo de destino y la línea de navegación
+        draw_circle_lines(int(self.destination.x), int(self.destination.y), 5, RED)
+        
+        # Dibujar barra de estamina
         bar_w = self.size
         bar_h = 4
         stamina_ratio = self.stamina / self.max_stamina

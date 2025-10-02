@@ -4,11 +4,11 @@ from __future__ import annotations
 from pyray import *
 from player import Player
 from scene import Scene
-import input_handler
+import input_handler # Asumimos que esta es la función get_player_input modificada
 import ui_helpers
 from typing import Optional
 
-# Definiciones de constantes
+# Definiciones de constantes (se mantienen igual)
 RESOLUTIONS = [
     (1920, 1080),
     (1600, 900),
@@ -21,9 +21,9 @@ MIN_ZOOM, MAX_ZOOM = 0.35, 3.0
 TRANSITION_TIME = 3.0
 FADE_TIME = 0.5
 HOLD_TIME = max(0.0, TRANSITION_TIME - 2.0 * FADE_TIME)
-LOADING_IMAGE_PATH: str | None = None # Por si quieres usar una imagen de carga
+LOADING_IMAGE_PATH: str | None = None
 
-# Estados del juego
+# Estados del juego (se mantienen igual)
 STATE_MAIN_MENU = "MAIN_MENU"
 STATE_CONFIG = "CONFIG"
 STATE_PLAY = "PLAY"
@@ -33,10 +33,11 @@ class Game:
     """Clase principal que gestiona el juego, los estados, la UI y la cámara."""
 
     def __init__(self, initial_res_index: int) -> None:
+
         # Propiedades de ventana
         self.res_index = initial_res_index
         self.screen_w, self.screen_h = RESOLUTIONS[self.res_index]
-        self.scene_w, self.scene_h = self.screen_w, self.screen_h
+        self.scene_w, self.scene_h = self.screen_w * 5, self.screen_h * 5
         
         # Inicialización de Raylib
         init_window(self.screen_w, self.screen_h, "Juego con Menú y Sliders (UI adaptativa, escala fija)")
@@ -56,6 +57,11 @@ class Game:
         self.scenes = self._create_scenes()
         self.active_scene_index = 0
         self.player = Player(self._scene_center(self.scenes[self.active_scene_index]))
+        
+        # *** NUEVOS ATRIBUTOS PARA EL CONTROL POINT-AND-CLICK ***
+        # El destino del jugador ahora se almacena en la clase Player.
+        # Aquí solo aseguramos que el input handler pueda acceder a la posición inicial.
+        # El input handler usará self.player.position y self.player.destination (que existe en la clase Player modificada)
 
         # Cámara
         self.camera = Camera2D()
@@ -74,11 +80,11 @@ class Game:
         }
         
         # Textura de carga (opcional)
-        self.loading_texture: Optional[Texture2D] = None
+        self.loading_texture: Optional[Texture2D] = None 
         self._load_assets()
 
 
-    # --- Setup Helpers ---
+    # --- Setup Helpers (sin cambios) ---
 
     def _update_camera_offset(self) -> None:
         """Actualiza el offset de la cámara al centro de la pantalla."""
@@ -91,9 +97,6 @@ class Game:
 
     def _create_scenes(self) -> list[Scene]:
         """Recrea todas las escenas (útil al cambiar resolución)."""
-        # Limpieza de escenas antiguas si existieran para liberar texturas.
-        # En Python, el GC se encarga, pero para texturas es bueno llamar a unload.
-        # Al reasignar self.scenes, las antiguas deberían ser recolectadas.
         return [
             self._make_scene(1, Color(70, 120, 200, 255)),
             self._make_scene(2, Color(200, 120, 70, 255)),
@@ -105,10 +108,13 @@ class Game:
         return Vector2(scene.size.x * 0.5, scene.size.y * 0.5)
 
     def _load_assets(self) -> None:
+        # Ensure that if the path is None, the attribute remains None (which is the default)
         if LOADING_IMAGE_PATH is not None:
             try:
                 self.loading_texture = load_texture(LOADING_IMAGE_PATH)
             except Exception:
+                # If loading fails, explicitly set it to None
+                print(f"Error loading texture from: {LOADING_IMAGE_PATH}")
                 self.loading_texture = None
 
     def _unload_assets(self) -> None:
@@ -172,6 +178,9 @@ class Game:
                     self.active_scene_index = self.target_scene
                     # Reposicionar jugador y cámara
                     self.player.position = self._scene_center(self.scenes[self.active_scene_index])
+                    # *** MANTENER EL DESTINO SINCORNIZADO AL CAMBIAR DE ESCENA ***
+                    self.player.destination = self.player.position 
+                    # *************************************************************
                     self.camera.target = Vector2(self.player.position.x, self.player.position.y)
                 self.swapped = True
             if self.trans_elapsed >= TRANSITION_TIME:
@@ -181,12 +190,18 @@ class Game:
         # --- Game updates (solo si estamos en PLAY y no estamos en overlay/loading) ---
         if self.state == STATE_PLAY and not self.loading and not self.ingame_menu_open:
         
-        # --- CAMBIO APLICADO AQUÍ ---
-            player_input = input_handler.get_player_input()
+            # *** CAMBIO CLAVE PARA POINT-AND-CLICK ***
             
-            # Pasa el vector de movimiento y el estado de sprint al jugador
-            self.player.update(player_input.move_vector, player_input.is_sprinting, dt)
-            # -----------------------------
+            # Obtener la posición del ratón en coordenadas del mundo, ya que la cámara está activa.
+            # get_screen_to_world2d es esencial para transformar la posición del mouse de pantalla a mundo.
+            mouse_world_pos = get_screen_to_world_2d(get_mouse_position(), self.camera)
+            
+            # Llamar al input handler: debe recibir la posición del jugador Y el destino guardado.
+            player_input = input_handler.get_player_input(self.player.position, self.player.destination, mouse_world_pos)
+            
+            # Pasar TODO el NamedTuple de entrada al jugador
+            self.player.update(player_input, dt)
+            # ****************************************
 
             # Zoom +/- y límites
             if is_key_down(KEY_EQUAL) or is_key_down(KEY_KP_ADD):
@@ -195,11 +210,11 @@ class Game:
                 self.camera.zoom -= 1.0 * dt
             self.camera.zoom = max(MIN_ZOOM, min(MAX_ZOOM, self.camera.zoom))
 
+            # La cámara sigue al jugador
             self.camera.target = Vector2(self.player.position.x, self.player.position.y)
             
         # Nota: La lógica de audio (SetMusicVolume/SetSoundVolume) debería ir aquí
         # si quieres que los sliders afecten el volumen en tiempo real.
-        # e.g., SetMusicVolume(self.music_obj, self.ui_state["music_volume"])
 
 
     def _start_loading(self, target_scene_index: int, next_state: str) -> None:
@@ -219,16 +234,17 @@ class Game:
         self.swapped = False
 
 
+    # --- Drawing Methods (sin cambios) ---
+
     def _draw(self) -> None:
         """Lógica de dibujo."""
         begin_drawing()
         clear_background(RAYWHITE)
+        draw_fps(20,20)
 
-        # Dimensiones de UI (recalculadas en cada frame para UI adaptativa)
         ui_dims = ui_helpers.calculate_ui_dimensions(self.screen_w, self.screen_h)
         def fsz(base): return ui_helpers.calc_font(self.screen_h, base)
         
-        # El código de dibujo de los estados es ahora un método privado para limpiar _draw
         if self.state == STATE_MAIN_MENU:
             self._draw_main_menu(ui_dims, fsz)
         elif self.state == STATE_CONFIG:
@@ -236,15 +252,14 @@ class Game:
         elif self.state == STATE_PLAY:
             self._draw_play_state(ui_dims, fsz)
         elif self.state == STATE_LOADING:
-            # No dibuja nada debajo de la carga, solo el overlay
             pass
 
-        # Overlay de carga (siempre dibujado encima de todo si está activo)
         self._draw_loading_overlay(fsz)
 
         end_drawing()
 
 
+    # ... (Todos los métodos _draw_main_menu, _draw_config_menu, _apply_resolution, _draw_play_state, _draw_loading_overlay se mantienen igual) ...
     # --- Drawing Methods (separados por estado) ---
 
     def _draw_main_menu(self, ui_dims: dict, fsz) -> None:
