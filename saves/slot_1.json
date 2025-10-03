@@ -1,0 +1,31 @@
+{
+  "id": "slot_1",
+  "name": "papu nooooo :\"v",
+  "scene_index": 1,
+  "player": {
+    "x": 2400.0,
+    "y": 1350.0
+  },
+  "clock_elapsed": 75.0,
+  "seconds_per_day": 300.0,
+  "inventory": [
+    {
+      "id": "Semilla de Maíz",
+      "qty": 10
+    },
+    {
+      "id": "Semilla de Trigo",
+      "qty": 6
+    },
+    {
+      "id": "Agua",
+      "qty": 20
+    },
+    {
+      "id": "Fertilizante",
+      "qty": 8
+    }
+  ],
+  "created": "2025-10-03 00:37:24",
+  "updated": "2025-10-03 00:37:24"
+}

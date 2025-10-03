@@ -1,121 +1,246 @@
 # player.py
-
 from __future__ import annotations
-import math
-from typing import NamedTuple
-import pyray
+from typing import List, Optional, Any
 from pyray import *
+import os
+from math import sqrt
 
-class PlayerInput(NamedTuple):
-    move_vector: Vector2
-    is_sprinting: bool
-    has_destination: bool
-    destination_point: Vector2
+# -------------------- util de rutas robustas --------------------
+
+def _paths_variants(filename: str) -> List[str]:
+    here = os.path.dirname(__file__)  # carpeta donde está player.py
+    cand = [
+        os.path.join(here, "assets", filename),
+        os.path.join(here, "Assets", filename),
+        os.path.join(here, "sprites", filename),
+        os.path.join(here, "Sprites", filename),
+        os.path.join(here, "characters", filename),
+        os.path.join(here, "assets", "characters", filename),
+        os.path.join(here, filename),                # mismo nivel que player.py
+        os.path.join(here, "..", "assets", filename),
+        os.path.join(here, "..", "Sprites", filename),
+        # por si acaso, relativas al cwd:
+        os.path.join("assets", filename),
+        os.path.join("Assets", filename),
+        filename,
+    ]
+    out, seen = [], set()
+    for p in cand:
+        pn = os.path.normpath(p)
+        if pn not in seen:
+            out.append(pn); seen.add(pn)
+    return out
+
+def _try_load_texture_many(candidates: List[str]) -> Optional[Texture2D]:
+    for p in candidates:
+        try:
+            if os.path.exists(p):
+                return load_texture(p)
+        except Exception:
+            pass
+    return None
+
+# ------------------------- Player -------------------------
 
 class Player:
+    def __init__(self, start_pos: Vector2) -> None:
+        # Posición / destino (coordenadas de mundo)
+        self.position: Vector2 = Vector2(start_pos.x, start_pos.y)
+        self.destination: Vector2 = Vector2(start_pos.x, start_pos.y)
 
-    def __init__(self, start_pos: Vector2, size: int = 32, speed: float = 240.0, accel_time: float = 0.15) -> None:
-        self.position = Vector2(start_pos.x, start_pos.y)
-        self.size = size
-        self.base_speed = speed
-        self.sprint_speed = speed * 2
-        self.current_speed = self.base_speed
+        # Tamaño lógico para colisiones (no el visual del sprite)
+        self.size: float = 24.0
 
-        # Navegación point-and-click
-        self.destination = Vector2(start_pos.x, start_pos.y)
-        self.TOLERANCE = 5.0
+        # Stats
+        self.max_hp: float = 100.0
+        self.hp: float = 100.0
+        self.max_stamina: float = 100.0
+        self.stamina: float = 100.0
 
-        # Vida
-        self.max_hp = 100.0
-        self.hp = self.max_hp
+        # Movimiento / anim
+        self.walk_speed: float = 170.0
+        self._moving: bool = False
+        self._facing_right: bool = True
 
-        # Estamina
-        self.max_stamina = 100.0
-        self.stamina = self.max_stamina
-        self.stamina_drain_rate = 30.0
-        self.stamina_regen_rate = 15.0
-        self.min_stamina_for_sprint = 5.0
+        self._frames_right: List[Texture2D] = []
+        self._frames_left:  List[Texture2D] = []
+        self._frame_idle_right: Optional[Texture2D] = None
+        self._frame_idle_left:  Optional[Texture2D] = None
 
-        self._dir = Vector2(0.0, 0.0)
-        self._progress = 0.0
-        self.accel_time = max(1e-4, accel_time)
-        self._velocity = Vector2(0.0, 0.0)
+        # ---- Ajustes visuales y de animación ----
+        self._visual_height: float = 100
+        self._feet_offset: float = 8.0   # ↓ Denisse baja un poco respecto al suelo
+        self._anim_base_fps: float = 7.0
+        self._anim_time: float = 0.0
+        self._last_move_dist: float = 0.0
+
+        self._fallback_color = RED
+        self._load_sprites()
+
+    # ----------------- carga sprites -----------------
+
+    def _load_sprites(self) -> None:
+        right_files = [
+            "DenisseSprites_Caminando_01.png",
+            "DenisseSprites_Caminando_02.png",
+            "DenisseSprites_Caminando_03.png",
+            "DenisseSprites_Caminando_04.png",
+        ]
+        left_files = [
+            "DenisseSprites_Caminando_I05.png",
+            "DenisseSprites_Caminando_I06.png",
+            "DenisseSprites_Caminando_I07.png",
+            "DenisseSprites_Caminando_I08.png",
+        ]
+        for fn in right_files:
+            tex = _try_load_texture_many(_paths_variants(fn))
+            if tex: self._frames_right.append(tex)
+        for fn in left_files:
+            tex = _try_load_texture_many(_paths_variants(fn))
+            if tex: self._frames_left.append(tex)
+
+        self._frame_idle_right = self._frames_right[0] if self._frames_right else None
+        self._frame_idle_left  = self._frames_left[0]  if self._frames_left  else None
+
+        if not self._frames_right or not self._frames_left:
+            print("[PLAYER] Aviso: no se encontraron todos los sprites. Buscando relativo a:", os.path.dirname(__file__))
+
+    def unload(self) -> None:
+        for t in self._frames_right:
+            try: unload_texture(t)
+            except Exception: pass
+        for t in self._frames_left:
+            try: unload_texture(t)
+            except Exception: pass
+        self._frames_right.clear()
+        self._frames_left.clear()
+
+    # -------------------- helpers input --------------------
 
     @staticmethod
-    def _length(v: Vector2) -> float:
-        return math.hypot(v.x, v.y)
+    def _get_attr_or_key(p_input: Any, name: str, default=None):
+        """Obtiene 'name' de un dict o atributo de objeto."""
+        try:
+            return p_input.get(name)            # dict-like
+        except Exception:
+            return getattr(p_input, name, default)
 
-    @staticmethod
-    def _normalize(v: Vector2) -> Vector2:
-        l = Player._length(v)
-        if l > 1e-9:
-            return Vector2(v.x / l, v.y / l)
-        return Vector2(0.0, 0.0)
+    # -------------------- update --------------------
 
-    @staticmethod
-    def _dot(a: Vector2, b: Vector2) -> float:
-        return a.x * b.x + a.y * b.y
+    def update(self, p_input: Any, dt: float) -> None:
+        """Acepta tanto dict como PlayerInput (move_vector, is_sprinting, has_destination, destination_point)."""
+        # 1) destino desde PlayerInput
+        dest_field = None
+        if p_input is not None:
+            dest_field = self._get_attr_or_key(p_input, "destination_point", None)
+            if dest_field is None:
+                dest_field = self._get_attr_or_key(p_input, "destination", None)
 
-    @staticmethod
-    def ease_in_out(t: float) -> float:
-        if t <= 0.0: return 0.0
-        if t >= 1.0: return 1.0
-        return t * t * (3.0 - 2.0 * t)
+        if dest_field is not None:
+            if hasattr(dest_field, "x") and hasattr(dest_field, "y"):
+                self.destination = Vector2(float(dest_field.x), float(dest_field.y))
+            elif isinstance(dest_field, (tuple, list)) and len(dest_field) == 2:
+                self.destination = Vector2(float(dest_field[0]), float(dest_field[1]))
 
-    def update(self, input_data: PlayerInput, dt: float) -> None:
+        # 2) sprint (tu input usa is_sprinting)
+        run_flag = False
+        if p_input is not None:
+            for key in ("is_sprinting", "run", "running", "is_running", "sprint", "shift"):
+                if bool(self._get_attr_or_key(p_input, key, False)):
+                    run_flag = True
+                    break
 
-        if input_data.has_destination:
-            self.destination = input_data.destination_point
-
-        distance_to_dest = Player._length(vector2_subtract(self.destination, self.position))
-
-        if distance_to_dest > self.TOLERANCE:
-            moving = True
-            move_axis = Player._normalize(vector2_subtract(self.destination, self.position))
+        speed = self.walk_speed * 1.20 if (run_flag and self.stamina > 0) else self.walk_speed
+        if run_flag and self.stamina > 0:
+            self.stamina = max(0.0, self.stamina - 12.0 * dt)
         else:
-            moving = False
-            move_axis = Vector2(0.0, 0.0)
-            self.destination = self.position
+            self.stamina = min(self.max_stamina, self.stamina + 6.0 * dt)
 
-        is_sprinting_attempt = input_data.is_sprinting
-        is_actually_sprinting = is_sprinting_attempt and moving and (self.stamina >= self.min_stamina_for_sprint)
+        # 3) mover hacia destino
+        dx = self.destination.x - self.position.x
+        dy = self.destination.y - self.position.y
+        dist = sqrt(dx*dx + dy*dy)
 
-        if is_actually_sprinting:
-            self.current_speed = self.sprint_speed
-            self.stamina = max(0.0, self.stamina - self.stamina_drain_rate * dt)
+        moved = False
+        moved_dist = 0.0
+        if dist > 1.0:
+            vx, vy = dx / dist, dy / dist
+            step = speed * dt
+            if step >= dist:
+                self.position.x = self.destination.x
+                self.position.y = self.destination.y
+                moved_dist = dist
+            else:
+                self.position.x += vx * step
+                self.position.y += vy * step
+                moved_dist = step
+            moved = True
+            if abs(vx) >= 0.1:  # mirar según dirección principal X
+                self._facing_right = vx >= 0.0
+
+        # 4) si tu input trae move_vector (p. ej. teclado), úsalo si no hay destino o ya llegó
+        if (not moved or dist <= 1.0) and p_input is not None:
+            mv = self._get_attr_or_key(p_input, "move_vector", None)
+            if mv is not None and hasattr(mv, "x") and hasattr(mv, "y"):
+                vx, vy = float(mv.x), float(mv.y)
+                if abs(vx) > 1e-4 or abs(vy) > 1e-4:
+                    step = speed * dt
+                    self.position.x += vx * step
+                    self.position.y += vy * step
+                    moved = True
+                    moved_dist = step
+                    if abs(vx) >= 0.1:
+                        self._facing_right = vx >= 0.0
+
+        self._moving = moved
+        self._last_move_dist = moved_dist
+
+        # Avance del reloj de animación con factor según velocidad real (más natural)
+        if self._moving:
+            current_speed = self._last_move_dist / max(dt, 1e-6)
+            factor = max(0.4, min(1.2, current_speed / max(1.0, self.walk_speed)))
+            self._anim_time += dt * (self._anim_base_fps / 7.0) * (7.0 * factor)
         else:
-            self.current_speed = self.base_speed
-            if self.stamina < self.max_stamina:
-                self.stamina = min(self.max_stamina, self.stamina + self.stamina_regen_rate * dt)
+            self._anim_time = 0.0
 
-        if moving:
-            new_dir = move_axis
-            if Player._length(self._dir) > 1e-6 and Player._dot(new_dir, self._dir) < -0.1:
-                self._progress = 0.0
-            self._dir = new_dir
-            self._progress += dt / self.accel_time
-        else:
-            self._progress -= dt / self.accel_time
+        # clamps
+        self.hp = max(0.0, min(self.max_hp, self.hp))
+        self.stamina = max(0.0, min(self.max_stamina, self.stamina))
 
-        self._progress = max(0.0, min(1.0, self._progress))
-        speed_mult = Player.ease_in_out(self._progress)
-
-        vx = self._dir.x * self.current_speed * speed_mult
-        vy = self._dir.y * self.current_speed * speed_mult
-        self._velocity.x = vx
-        self._velocity.y = vy
-
-        self.position.x += vx * dt
-        self.position.y += vy * dt
+    # -------------------- draw --------------------
 
     def draw(self) -> None:
-        x = int(self.position.x - self.size / 2)
-        y = int(self.position.y - self.size / 2)
-        # Cuerpo del jugador
-        draw_rectangle(x, y, self.size, self.size, Color(200, 50, 50, 255))
-        draw_rectangle_lines(x, y, self.size, self.size, BLACK)
+        tex = self._choose_texture()
+        if tex is None or getattr(tex, "id", 0) == 0:
+            # fallback: cuadrado rojo
+            s = int(self.size)
+            draw_rectangle(int(self.position.x - s/2), int(self.position.y - s/2), s, s, self._fallback_color)
+            draw_rectangle_lines(int(self.position.x - s/2), int(self.position.y - s/2), s, s, BLACK)
+            return
 
-        # Indicador del destino (opcional)
-        draw_circle_lines(int(self.destination.x), int(self.destination.y), 5, RED)
+        scale = self._visual_height / max(1, tex.height)
+        draw_w = int(tex.width * scale)
+        draw_h = int(tex.height * scale)
 
-        # (La barrita de estamina sobre la cabeza se ha eliminado; ahora va en el HUD)
+        # Anclar a los pies (más abajo por feet_offset)
+        draw_x = int(self.position.x - draw_w / 2)
+        draw_y = int(self.position.y - draw_h + self._feet_offset)
+
+        # ---- Sombra más pequeña y pegada al suelo ----
+        sh_w = int(self._visual_height * 0.24)  # antes 0.30
+        sh_h = int(self._visual_height * 0.07)  # antes 0.10
+        sh_w = max(10, sh_w)
+        sh_h = max(5, sh_h)
+        draw_ellipse(int(self.position.x), int(self.position.y - 1), sh_w, sh_h, Color(0, 0, 0, 58))
+
+        draw_texture_ex(tex, Vector2(draw_x, draw_y), 0.0, scale, WHITE)
+
+    def _choose_texture(self) -> Optional[Texture2D]:
+        frames = self._frames_right if self._facing_right else self._frames_left
+        idle   = self._frame_idle_right if self._facing_right else self._frame_idle_left
+        if not frames:
+            return idle
+        if not self._moving:
+            return idle
+        idx = int(self._anim_time) % len(frames)
+        return frames[idx]
