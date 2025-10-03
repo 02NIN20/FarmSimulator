@@ -1,117 +1,331 @@
 # map_system.py
 
 from __future__ import annotations
-from typing import List, Optional
+from typing import List, Tuple
 from pyray import *
 
+# Importa las siluetas (listas de puntos) de zonas 2-4
+# Pueden venir como tuplas (x, y), listas [x, y], Vector2 u objetos con .x/.y
+try:
+    from zones_geometry import (
+        zone2_alaska_polygon,
+        zone3_ppr_polygon,
+        zone4_michigan_polygon,
+    )
+except Exception:
+    # Fallback por si se abre el archivo de forma independiente
+    def zone2_alaska_polygon(): return []
+    def zone3_ppr_polygon():    return []
+    def zone4_michigan_polygon(): return []
+
+
 class MapSystem:
-    """Sistema de mapa del mundo con selección por clic."""
-    def __init__(self, total_scenes: int):
-        self.is_open: bool = False
-        self.total_scenes = total_scenes
-        
-        self.scene_colors = [
-            Color(70, 120, 200, 255),   # Escena 1
-            Color(200, 120, 70, 255),   # Escena 2
-            Color(80, 160, 110, 255),   # Escena 3
-            Color(160, 80, 160, 255),   # Escena 4
-        ]
-        
-        # Nombres alineados a tus zonas reales
-        self.scene_names = [
-            "Escenario 1 — Área Local",
-            "Escenario 2 — Alaska (Valle Matanuska-Susitna)",
-            "Escenario 3 — Dakota del Norte (Woodworth – PPR)",
-            "Escenario 4 — Michigan (Suttons Bay – Leelanau Peninsula)",
+    def __init__(self, total_scenes: int = 4) -> None:
+        self.total_scenes = max(1, total_scenes)
+        self.is_open = False
+
+        self.scene_names: List[str] = [
+            "Escenario 1 – Agricultura local",
+            "Escenario 2 – Alaska (Valle Matanuska-Susitna)",
+            "Escenario 3 – Dakota del Norte (Woodworth – Prairie Pothole Region)",
+            "Escenario 4 – Michigan (Suttons Bay – Leelanau Peninsula)",
+        ][: self.total_scenes]
+
+        # Layout cacheado: (rect, idx)
+        self._cards: List[Tuple[Rectangle, int]] = []
+
+        # Paleta base por escena (tarjetas)
+        self.colors = [
+            Color(70, 130, 180, 255),   # 1 azul
+            Color(210, 140, 70, 255),   # 2 naranja
+            Color(80, 160, 120, 255),   # 3 verde
+            Color(160, 100, 170, 255),  # 4 violeta
         ]
 
-        # Geometría cacheada del grid (para handle_click)
-        self._last_grid = []  # lista de (i, x, y, w, h)
+        # Colores de silueta por bioma
+        self.sil_fill = [
+            None,                                 # 1 sin silueta
+            Color(120, 160, 145, 255),            # 2 Alaska
+            Color(165, 185, 100, 255),            # 3 PPR
+            Color(100, 165, 125, 255),            # 4 Michigan
+        ]
+        self.sil_outline = [
+            None,
+            Color(30, 60, 55, 220),
+            Color(60, 70, 25, 220),
+            Color(35, 70, 45, 220),
+        ]
 
-    def toggle(self):
+    # =================== API pública ===================
+
+    def toggle(self) -> None:
         self.is_open = not self.is_open
-        if not self.is_open:
-            self._last_grid = []
 
-    def _compute_grid(self, screen_w: int, screen_h: int) -> tuple[int,int,int,int,int,int,int,int]:
-        map_width = min(800, int(screen_w * 0.7))
-        map_height = min(600, int(screen_h * 0.7))
-        map_x = (screen_w - map_width) // 2
-        map_y = (screen_h - map_height) // 2
-        cell_size = min(map_width // 2, map_height // 2) - 20
-        start_x = map_x + (map_width - cell_size * 2 - 20) // 2
-        start_y = map_y + 20
-        return map_x, map_y, map_width, map_height, cell_size, start_x, start_y
-
-    def draw(self, screen_w: int, screen_h: int, current_scene: int):
+    def draw(self, screen_w: int, screen_h: int, active_scene_index: int) -> None:
         if not self.is_open:
             return
 
-        map_x, map_y, map_width, map_height, cell_size, start_x, start_y = self._compute_grid(screen_w, screen_h)
+        # Fondo general
+        draw_rectangle(0, 0, screen_w, screen_h, Color(24, 22, 20, 230))
 
-        # Fondo
-        draw_rectangle(0, 0, screen_w, screen_h, Color(0, 0, 0, 180))
-        draw_rectangle(map_x - 20, map_y - 40, map_width + 40, map_height + 60, Color(50, 45, 40, 255))
-        draw_rectangle_lines(map_x - 20, map_y - 40, map_width + 40, map_height + 60, Color(200, 180, 140, 255))
+        # Título superior autoajustado
+        title = "MAPA DEL MUNDO"
+        max_title_w = int(screen_w * 0.8)
+        fs = 42
+        while fs > 18 and measure_text(title, fs) > max_title_w:
+            fs -= 1
+        draw_text(title, (screen_w - measure_text(title, fs)) // 2, int(screen_h * 0.06), fs, Color(245, 245, 245, 255))
 
-        # Título
-        title_font = max(20, int(screen_h * 0.03))
-        title_text = "MAPA DEL MUNDO"
-        title_width = measure_text(title_text, title_font)
-        draw_text(title_text, map_x + (map_width - title_width) // 2, map_y - 30, title_font, Color(255, 240, 200, 255))
+        # Layout 2x2
+        self._compute_layout(screen_w, screen_h)
 
-        # Celdas 2x2
-        self._last_grid = []
-        for i in range(self.total_scenes):
-            row = i // 2
-            col = i % 2
-            cell_x = start_x + col * (cell_size + 20)
-            cell_y = start_y + row * (cell_size + 20)
+        # Tarjetas
+        mouse = get_mouse_position()
+        for rect, idx in self._cards:
+            hovered = check_collision_point_rec(mouse, rect)
+            selected = (idx == active_scene_index)
+            base_col = self.colors[idx % len(self.colors)]
+            name = self.scene_names[idx] if idx < len(self.scene_names) else f"Escenario {idx + 1}"
 
-            scene_color = self.scene_colors[i] if i < len(self.scene_colors) else GRAY
-            border_color = Color(255, 220, 100, 255) if i == current_scene else Color(100, 90, 80, 255)
+            self._draw_card(rect, base_col, name, idx + 1, idx, selected, hovered)
 
-            draw_rectangle(cell_x, cell_y, cell_size, cell_size, scene_color)
-            if i == current_scene:
-                draw_rectangle_lines(cell_x - 2, cell_y - 2, cell_size + 4, cell_size + 4, border_color)
-            draw_rectangle_lines(cell_x, cell_y, cell_size, cell_size, border_color)
-
-            # Número de escena
-            num_font = max(30, int(cell_size * 0.2))
-            num_text = str(i + 1)
-            num_w = measure_text(num_text, num_font)
-            draw_text(num_text, cell_x + (cell_size - num_w) // 2, cell_y + cell_size // 2 - num_font // 2 - 20, num_font, Color(255, 255, 255, 200))
-
-            # Nombre
-            name_font = max(14, int(cell_size * 0.08))
-            name = self.scene_names[i] if i < len(self.scene_names) else f"Escena {i+1}"
-            name_w = measure_text(name, name_font)
-            text_bg_y = cell_y + cell_size // 2 + 10
-            draw_rectangle(cell_x + 10, text_bg_y - 5, cell_size - 20, name_font + 10, Color(0, 0, 0, 150))
-            draw_text(name, cell_x + (cell_size - name_w) // 2, text_bg_y, name_font, Color(255, 255, 255, 255))
-
-            # Cachea para clicks
-            self._last_grid.append((i, cell_x, cell_y, cell_size, cell_size))
-
-        # Instrucciones
-        inst_font = max(12, int(screen_h * 0.018))
-        inst_text = "Haz clic en una zona para viajar | [M] cerrar"
-        inst_w = measure_text(inst_text, inst_font)
-        draw_text(inst_text, map_x + (map_width - inst_w) // 2, map_y + map_height + 10, inst_font, Color(200, 200, 200, 255))
+        # Pie
+        foot = "Haz clic en una zona para viajar  |  [M] cerrar"
+        fs2 = 18
+        draw_text(foot, (screen_w - measure_text(foot, fs2)) // 2, int(screen_h * 0.90), fs2, Color(230, 230, 230, 220))
 
     def handle_click(self, screen_w: int, screen_h: int) -> int:
-        """Retorna el índice de escena clickeado o -1 si ningún click válido."""
+        """Devuelve el índice de escena al hacer click; si no hay click válido, -1."""
         if not self.is_open:
             return -1
-
-        if not self._last_grid:
-            # recomputa por seguridad
-            self.draw(screen_w, screen_h, 0)
+        if not self._cards:
+            self._compute_layout(screen_w, screen_h)
 
         mouse = get_mouse_position()
-        mx, my = int(mouse.x), int(mouse.y)
-
-        for (i, x, y, w, h) in self._last_grid:
-            if mx >= x and mx <= x + w and my >= y and my <= y + h:
-                return i
+        if is_mouse_button_pressed(MOUSE_LEFT_BUTTON):
+            for rect, idx in self._cards:
+                if check_collision_point_rec(mouse, rect):
+                    return idx
         return -1
+
+    # =================== Layout ===================
+
+    def _compute_layout(self, screen_w: int, screen_h: int) -> None:
+        self._cards.clear()
+
+        # Área central para grid 2x2 (dejando márgenes cómodos)
+        grid_w = int(screen_w * 0.70)
+        grid_h = int(screen_h * 0.64)
+        grid_x = (screen_w - grid_w) // 2
+        grid_y = int(screen_h * 0.20)
+
+        cols, rows = 2, 2
+        gap = int(min(grid_w, grid_h) * 0.06)
+        card_w = (grid_w - gap * (cols - 1)) // cols
+        card_h = (grid_h - gap * (rows - 1)) // rows
+
+        # NOTA: el título ahora va DENTRO de la tarjeta en una banda inferior,
+        # por lo que no se superpone a la fila de abajo.
+
+        idx = 0
+        for r in range(rows):
+            for c in range(cols):
+                if idx >= self.total_scenes:
+                    break
+                x = grid_x + c * (card_w + gap)
+                y = grid_y + r * (card_h + gap)
+                self._cards.append((Rectangle(x, y, card_w, card_h), idx))
+                idx += 1
+
+    # =================== Dibujo de tarjeta ===================
+
+    def _draw_card(
+        self,
+        rect: Rectangle,
+        base_col: Color,
+        title: str,
+        index_number: int,
+        scene_idx: int,
+        selected: bool,
+        hovered: bool,
+    ) -> None:
+        x, y, w, h = int(rect.x), int(rect.y), int(rect.width), int(rect.height)
+
+        # Sombra
+        draw_rectangle(x + 4, y + 4, w, h, Color(0, 0, 0, 70))
+
+        # Fondo + borde redondeado
+        fill = self._tint(base_col, 1.06) if hovered else base_col
+        try:
+            draw_rectangle_rounded(Rectangle(x, y, w, h), 0.12, 8, fill)
+            draw_rectangle_rounded_lines(Rectangle(x, y, w, h), 0.12, 8, 2, Color(30, 30, 30, 200))
+        except Exception:
+            draw_rectangle(x, y, w, h, fill)
+            draw_rectangle_lines(x, y, w, h, Color(30, 30, 30, 200))
+
+        # Borde de selección
+        if selected:
+            draw_rectangle_lines(x - 2, y - 2, w + 4, h + 4, Color(255, 220, 120, 255))
+
+        # Padding interno
+        pad = int(min(w, h) * 0.08)
+        content = Rectangle(x + pad, y + pad, w - 2 * pad, h - 2 * pad)
+
+        # Banda inferior para título (dentro de la tarjeta)
+        title_h = int(max(28, h * 0.22))
+        title_rect = Rectangle(content.x, content.y + content.height - title_h, content.width, title_h)
+        shape_area = Rectangle(content.x, content.y, content.width, content.height - title_h - int(pad * 0.25))
+
+        # Silueta (escenas 2–4) o rectángulo (escena 1)
+        poly = self._get_scene_polygon_points(scene_idx)  # robusto a tuplas/Vector2
+        if poly:
+            sil_fill = self.sil_fill[scene_idx] if scene_idx < len(self.sil_fill) else Color(180, 180, 180, 255)
+            sil_outline = self.sil_outline[scene_idx] if scene_idx < len(self.sil_outline) else Color(40, 40, 40, 255)
+            self._draw_shape_silhouette(shape_area, poly, sil_fill, sil_outline)
+        else:
+            draw_rectangle(int(shape_area.x), int(shape_area.y), int(shape_area.width), int(shape_area.height), self._tint(base_col, 0.85))
+            draw_rectangle_lines(int(shape_area.x), int(shape_area.y), int(shape_area.width), int(shape_area.height), Color(20, 20, 20, 160))
+
+        # Badge con número (esquina sup. izq.)
+        self._draw_badge_number(x + 12, y + 10, index_number)
+
+        # Título centrado en la banda inferior
+        self._draw_title_in_band(title_rect, title)
+
+    # ======== Siluetas / Texto / Utilidades ========
+
+    def _get_scene_polygon_points(self, scene_idx: int) -> List[Vector2]:
+        """Convierte cualquier formato de puntos (tupla/list/Vector2/obj) en Vector2."""
+        if scene_idx == 1:
+            raw = zone2_alaska_polygon()
+        elif scene_idx == 2:
+            raw = zone3_ppr_polygon()
+        elif scene_idx == 3:
+            raw = zone4_michigan_polygon()
+        else:
+            return []
+
+        pts: List[Vector2] = []
+        for v in raw or []:
+            try:
+                # Vector2 u objeto con .x/.y
+                x = float(v.x) if hasattr(v, "x") else float(v[0])
+                y = float(v.y) if hasattr(v, "y") else float(v[1])
+                pts.append(Vector2(x, y))
+            except Exception:
+                # Si algo raro, ignora ese vértice
+                continue
+        return pts
+
+    def _draw_shape_silhouette(self, area: Rectangle, polygon_pts: List[Vector2], fill: Color, outline: Color) -> None:
+        if not polygon_pts or len(polygon_pts) < 3:
+            return
+
+        # Bounds del polígono
+        min_x = min(p.x for p in polygon_pts)
+        max_x = max(p.x for p in polygon_pts)
+        min_y = min(p.y for p in polygon_pts)
+        max_y = max(p.y for p in polygon_pts)
+        bw = max(1e-5, max_x - min_x)
+        bh = max(1e-5, max_y - min_y)
+
+        # Padding interno y escala
+        pad = min(area.width, area.height) * 0.06
+        avail_w = area.width - 2 * pad
+        avail_h = area.height - 2 * pad
+        scale = min(avail_w / bw, avail_h / bh)
+
+        # Offset para centrar
+        offset_x = area.x + (area.width - bw * scale) * 0.5 - min_x * scale
+        offset_y = area.y + (area.height - bh * scale) * 0.5 - min_y * scale
+
+        # Transformar a coords de pantalla
+        pts: List[Vector2] = [Vector2(offset_x + p.x * scale, offset_y + p.y * scale) for p in polygon_pts]
+
+        # Centroide
+        cx = sum(pt.x for pt in pts) / len(pts)
+        cy = sum(pt.y for pt in pts) / len(pts)
+        c = Vector2(cx, cy)
+
+        # Relleno con triangulación fan
+        for i in range(1, len(pts) - 1):
+            draw_triangle(c, pts[i], pts[i + 1], fill)
+
+        # Contorno
+        thickness = max(1.5, min(area.width, area.height) * 0.010)
+        for i in range(len(pts)):
+            a = pts[i]
+            b = pts[(i + 1) % len(pts)]
+            draw_line_ex(a, b, thickness, outline)
+
+        # Sombreado sutil
+        draw_circle(int(cx), int(cy), max(4.0, min(area.width, area.height) * 0.02), Color(0, 0, 0, 30))
+
+    def _draw_badge_number(self, x: int, y: int, number: int) -> None:
+        text = str(number)
+        fs = 22
+        w = max(28, measure_text(text, fs) + 12)
+        h = 26
+        try:
+            draw_rectangle_rounded(Rectangle(x, y, w, h), 0.35, 8, Color(0, 0, 0, 110))
+            draw_rectangle_rounded_lines(Rectangle(x, y, w, h), 0.35, 8, 2, Color(255, 255, 255, 40))
+        except Exception:
+            draw_rectangle(x, y, w, h, Color(0, 0, 0, 110))
+            draw_rectangle_lines(x, y, w, h, Color(255, 255, 255, 40))
+        draw_text(text, x + (w - measure_text(text, fs)) // 2, y + (h - fs) // 2, fs, Color(255, 255, 255, 240))
+
+    def _draw_title_in_band(self, band: Rectangle, title: str) -> None:
+        """Dibuja el título dentro de una banda inferior de la tarjeta (2 líneas máx)."""
+        # Fondo banda
+        draw_rectangle(int(band.x), int(band.y), int(band.width), int(band.height), Color(0, 0, 0, 100))
+
+        max_w = int(band.width * 0.94)
+        base_fs = max(14, int(band.height * 0.34))
+        fs = base_fs
+        while fs > 12 and self._lines_needed(title, fs, max_w) > 2:
+            fs -= 1
+        lines = self._wrap_text(title, fs, max_w, max_lines=2)
+
+        total_h = len(lines) * (fs + 2)
+        y0 = int(band.y + (band.height - total_h) // 2)
+        for i, line in enumerate(lines):
+            tw = measure_text(line, fs)
+            draw_text(line, int(band.x + (band.width - tw) // 2), y0 + i * (fs + 2), fs, Color(245, 245, 245, 240))
+
+    # =========== Utilidades de texto y color ===========
+
+    def _wrap_text(self, text: str, fs: int, max_w: int, max_lines: int = 2) -> List[str]:
+        words = text.split()
+        lines: List[str] = []
+        cur = ""
+        for w in words:
+            test = w if not cur else cur + " " + w
+            if measure_text(test, fs) <= max_w:
+                cur = test
+            else:
+                if cur:
+                    lines.append(cur)
+                cur = w
+                if len(lines) >= max_lines - 1:
+                    break
+        if cur and len(lines) < max_lines:
+            lines.append(cur)
+        # Truncado con “…” si queda texto fuera
+        joined = " ".join(words).strip()
+        shown = " ".join(lines).strip()
+        if joined != shown and len(lines) >= max_lines:
+            last = lines[-1]
+            ell = "…"
+            while last and measure_text(last + ell, fs) > max_w:
+                last = last[:-1]
+            lines[-1] = last + ell
+        return lines
+
+    def _lines_needed(self, text: str, fs: int, max_w: int) -> int:
+        return len(self._wrap_text(text, fs, max_w, max_lines=999))
+
+    def _tint(self, c: Color, factor: float) -> Color:
+        r = int(max(0, min(255, c.r * factor)))
+        g = int(max(0, min(255, c.g * factor)))
+        b = int(max(0, min(255, c.b * factor)))
+        return Color(r, g, b, c.a)

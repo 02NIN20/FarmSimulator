@@ -11,14 +11,12 @@ import ui_helpers
 from inventory import Inventory
 from map_system import MapSystem
 
-# Polígonos de zonas (nuevos)
+# Polígonos densos tipo mapa (definidos en zones_geometry.py)
 from zones_geometry import (
     zone2_alaska_polygon,
     zone3_ppr_polygon,
     zone4_michigan_polygon,
 )
-
-# ------------------ Constantes ------------------
 
 RESOLUTIONS = [
     (1920, 1080),
@@ -30,11 +28,9 @@ RESOLUTIONS = [
 ]
 
 MIN_ZOOM, MAX_ZOOM = 0.35, 3.0
-
 TRANSITION_TIME = 3.0
 FADE_TIME = 0.5
 HOLD_TIME = max(0.0, TRANSITION_TIME - 2.0 * FADE_TIME)
-
 LOADING_IMAGE_PATH: str | None = None
 
 STATE_MAIN_MENU = "MAIN_MENU"
@@ -42,7 +38,6 @@ STATE_CONFIG    = "CONFIG"
 STATE_PLAY      = "PLAY"
 STATE_LOADING   = "LOADING"
 
-# ------------------ Reloj del juego ------------------
 
 class GameClock:
     SEASONS = ["Primavera", "Verano", "Otoño", "Invierno"]
@@ -73,59 +68,49 @@ class GameClock:
         idx = ((self.day - 1) // season_len) % len(self.SEASONS)
         return self.SEASONS[idx]
 
-# ------------------ Juego ------------------
 
 class Game:
     def __init__(self, initial_res_index: int) -> None:
-
-        # Ventana
         self.res_index = initial_res_index
         self.screen_w, self.screen_h = RESOLUTIONS[self.res_index]
-        # Mundo grande (5x pantalla) para libertad de cámara
         self.scene_w, self.scene_h = self.screen_w * 5, self.screen_h * 5
 
         init_window(self.screen_w, self.screen_h, "ASTRA - NASA Space Apps")
+        set_exit_key(0)
         set_target_fps(60)
 
-        # Estados
         self.state = STATE_MAIN_MENU
         self.running = True
         self.ingame_menu_open = False
 
-        # Transición de carga
         self.loading = False
         self.trans_elapsed = 0.0
         self.target_scene: Optional[int] = None
         self.swapped = False
         self.post_load_state = STATE_PLAY
 
-        # Mundo/escenas
         self.scenes = self._create_scenes()
         self.active_scene_index = 0
         self.player = Player(self._scene_center(self.scenes[self.active_scene_index]))
 
-        # Sistemas
         self.inventory = Inventory(rows=4, cols=10)
         self.map_system = MapSystem(total_scenes=len(self.scenes))
 
-        # Items de ejemplo
+        # Ítems ejemplo
         self.inventory.add_item("seed_corn", 10)
         self.inventory.add_item("seed_wheat", 5)
         self.inventory.add_item("water", 20)
         self.inventory.add_item("fertilizer", 8)
 
-        # Hotbar
         self.hotbar_size = min(9, self.inventory.cols)
         self.hotbar_index = 0
 
-        # Cámara
         self.camera = Camera2D()
         self._update_camera_offset()
         self.camera.target = Vector2(self.player.position.x, self.player.position.y)
         self.camera.rotation = 0.0
         self.camera.zoom = 1.0
 
-        # UI state
         self.ui_state = {
             "music_volume": 0.8,
             "sfx_volume": 0.9,
@@ -134,14 +119,12 @@ class Game:
             "res_dropdown_open": False,
         }
 
-        # Reloj
         self.clock = GameClock(seconds_per_day=300.0)
 
-        # Textura de carga opcional
         self.loading_texture: Optional[Texture2D] = None
         self._load_assets()
 
-    # ------------------ Helpers ------------------
+    # ===================== Helpers =====================
 
     def _update_camera_offset(self) -> None:
         self.camera.offset = Vector2(self.screen_w / 2, self.screen_h / 2)
@@ -149,46 +132,55 @@ class Game:
     def _scene_center(self, scene: Scene) -> Vector2:
         return Vector2(scene.size.x * 0.5, scene.size.y * 0.5)
 
-    def _make_scene(self, scene_id: int, color: Color) -> Scene:
+    def _make_scene(self, scene_id: int, land: Color) -> Scene:
         size = Vector2(self.scene_w, self.scene_h)
         spawn = Vector2(self.scene_w * 0.5, self.scene_h * 0.5)
-        return Scene(scene_id, size, color, spawn)
+        return Scene(scene_id, size, land, spawn, land_color=land)
+
+    def _clamp_camera_to_scene(self) -> None:
+        """Evita que la cámara muestre fuera de la escena (adiós franjas blancas)."""
+        scene = self.scenes[self.active_scene_index]
+        half_w = (self.screen_w * 0.5) / max(0.001, self.camera.zoom)
+        half_h = (self.screen_h * 0.5) / max(0.001, self.camera.zoom)
+        tx = max(half_w, min(scene.size.x - half_w, self.camera.target.x))
+        ty = max(half_h, min(scene.size.y - half_h, self.camera.target.y))
+        self.camera.target = Vector2(tx, ty)
+
+    # --- Ajuste de texto al ancho disponible ---
+    def _fit_font(self, text: str, max_width: int, base: int, min_size: int = 14) -> int:
+        size = base
+        while size > min_size and measure_text(text, size) > max_width:
+            size -= 1
+        return max(min_size, size)
+
+    # ===================== Crear escenas =====================
 
     def _create_scenes(self) -> list[Scene]:
-        """Crea las escenas. 2–4 usan polígonos de zona (sin rectángulo gigante)."""
-        s1 = self._make_scene(1, Color(70, 120, 200, 255))  # Escena 1 queda rectangular (área local)
+        # Tono “pasto” por bioma
+        LOCAL_LAND   = Color(128, 178, 112, 255)  # neutro
+        ALASKA_LAND  = Color(100, 142, 120, 255)  # boreal
+        PPR_LAND     = Color(160, 175,  90, 255)  # pradera
+        MICH_LAND    = Color( 92, 150, 110, 255)  # bosque húmedo
 
-        # Escena 2 — Alaska
+        s1 = self._make_scene(1, LOCAL_LAND)
+
         s2 = Scene(
-            2,
-            Vector2(self.scene_w, self.scene_h),
-            Color(200, 120, 70, 255),
+            2, Vector2(self.scene_w, self.scene_h), ALASKA_LAND,
             Vector2(self.scene_w * 0.5, self.scene_h * 0.5),
-            grid_cell_size=64,
-            grid_enabled=True,
-            polygon_norm=zone2_alaska_polygon(),
+            grid_cell_size=48, grid_enabled=True,
+            polygon_norm=zone2_alaska_polygon(), land_color=ALASKA_LAND
         )
-
-        # Escena 3 — Dakota del Norte (PPR)
         s3 = Scene(
-            3,
-            Vector2(self.scene_w, self.scene_h),
-            Color(80, 160, 110, 255),
+            3, Vector2(self.scene_w, self.scene_h), PPR_LAND,
             Vector2(self.scene_w * 0.5, self.scene_h * 0.5),
-            grid_cell_size=64,
-            grid_enabled=True,
-            polygon_norm=zone3_ppr_polygon(),
+            grid_cell_size=48, grid_enabled=True,
+            polygon_norm=zone3_ppr_polygon(), land_color=PPR_LAND
         )
-
-        # Escena 4 — Michigan (Leelanau)
         s4 = Scene(
-            4,
-            Vector2(self.scene_w, self.scene_h),
-            Color(160, 80, 160, 255),
+            4, Vector2(self.scene_w, self.scene_h), MICH_LAND,
             Vector2(self.scene_w * 0.5, self.scene_h * 0.5),
-            grid_cell_size=64,
-            grid_enabled=True,
-            polygon_norm=zone4_michigan_polygon(),
+            grid_cell_size=48, grid_enabled=True,
+            polygon_norm=zone4_michigan_polygon(), land_color=MICH_LAND
         )
 
         return [s1, s2, s3, s4]
@@ -206,7 +198,7 @@ class Game:
             unload_texture(self.loading_texture)
             self.loading_texture = None
 
-    # ------------------ Bucle principal ------------------
+    # ===================== Bucle principal =====================
 
     def run(self) -> None:
         while self.running and not window_should_close():
@@ -214,11 +206,10 @@ class Game:
             self._handle_input()
             self._update(dt)
             self._draw()
-
         self._unload_assets()
         close_window()
 
-    # ------------------ Entrada ------------------
+    # ===================== Entrada =====================
 
     def _handle_input(self) -> None:
         # Inventario (I)
@@ -235,28 +226,23 @@ class Game:
                     self.inventory.is_open = False
                 self.map_system.toggle()
 
-        # ESC
+        # ESC: NO cierra el juego en ningún estado
         if is_key_pressed(KEY_ESCAPE):
             if self.state == STATE_MAIN_MENU:
-                self.running = False
+                # No hace nada (antes salía del juego)
+                pass
             elif self.state == STATE_CONFIG:
+                # Vuelve al menú principal
                 self.state = STATE_MAIN_MENU
                 self.ui_state["res_dropdown_open"] = False
             elif self.state == STATE_PLAY:
+                # Cierra paneles si están abiertos; si no, abre/cierra el menú in-game
                 if self.inventory.is_open:
                     self.inventory.is_open = False
                 elif self.map_system.is_open:
                     self.map_system.is_open = False
                 else:
                     self.ingame_menu_open = not self.ingame_menu_open
-
-        # Menú in-game (P)
-        if self.state == STATE_PLAY and is_key_pressed(KEY_P):
-            if self.inventory.is_open or self.map_system.is_open:
-                self.inventory.is_open = False
-                self.map_system.is_open  = False
-            else:
-                self.ingame_menu_open = not self.ingame_menu_open
 
         # Selección de escena por CLICK en el MAPA
         if (
@@ -283,14 +269,13 @@ class Game:
                     self.inventory.is_open  = False
                     self.ingame_menu_open   = False
 
-        # Hotbar: rueda y 1..9
+        # Hotbar: rueda y 1..9 (SOLO hotbar, NO cambia de escenas)
         if self.state == STATE_PLAY and not self.loading:
             wheel = get_mouse_wheel_move()
             if wheel > 0.0:
                 self.hotbar_index = (self.hotbar_index - 1) % self.hotbar_size
             elif wheel < 0.0:
                 self.hotbar_index = (self.hotbar_index + 1) % self.hotbar_size
-
             if is_key_pressed(KEY_ONE):   self.hotbar_index = 0
             if is_key_pressed(KEY_TWO):   self.hotbar_index = min(1, self.hotbar_size - 1)
             if is_key_pressed(KEY_THREE): self.hotbar_index = min(2, self.hotbar_size - 1)
@@ -301,28 +286,23 @@ class Game:
             if is_key_pressed(KEY_EIGHT): self.hotbar_index = min(7, self.hotbar_size - 1)
             if is_key_pressed(KEY_NINE):  self.hotbar_index = min(8, self.hotbar_size - 1)
 
-        # Importante: NO hay teclas 1–4 para cambiar escena (solo mapa)
-
-    # ------------------ Update ------------------
+    # ===================== Update =====================
 
     def _update(self, dt: float) -> None:
-        # Transición de carga
         if self.loading:
             self.trans_elapsed += dt
             if (not self.swapped) and (self.trans_elapsed >= FADE_TIME):
                 if self.target_scene is not None:
                     self.active_scene_index = self.target_scene
-                    # Reposicionar al centro de la nueva escena
                     self.player.position = self._scene_center(self.scenes[self.active_scene_index])
                     self.player.destination = self.player.position
                     self.camera.target = Vector2(self.player.position.x, self.player.position.y)
+                    self._clamp_camera_to_scene()
                 self.swapped = True
-
             if self.trans_elapsed >= TRANSITION_TIME:
                 self._end_loading()
                 self.state = self.post_load_state
 
-        # Actualización normal
         if (
             self.state == STATE_PLAY
             and not self.loading
@@ -333,16 +313,12 @@ class Game:
             mouse_world = get_screen_to_world_2d(get_mouse_position(), self.camera)
             p_input = input_handler.get_player_input(self.player.position, self.player.destination, mouse_world)
 
-            # Guardar pos anterior
             old_x, old_y = self.player.position.x, self.player.position.y
-
-            # Mover jugador
             self.player.update(p_input, dt)
 
-            # --- COLISIÓN con límites de la zona (collisions.py) ---
+            # Colisión con contorno (CollisionMap de la escena activa)
             scene = self.scenes[self.active_scene_index]
             cm = getattr(scene, "collision_map", None)
-
             if cm is not None:
                 size = float(self.player.size)
                 half = size * 0.5
@@ -351,27 +327,26 @@ class Game:
                 def collides_at(px: float, py: float) -> bool:
                     return cm.rect_collides(px - half, py - half, size, size, cs, cs)
 
-                # Separación por ejes: intenta mover en X, luego en Y
                 new_x, new_y = self.player.position.x, self.player.position.y
 
-                # mover en X
+                # Eje X
                 test_x = new_x
                 if collides_at(test_x, old_y):
                     test_x = old_x
 
-                # mover en Y (con X ya aplicado)
+                # Eje Y
                 test_y = new_y
                 if collides_at(test_x, test_y):
                     if collides_at(test_x, old_y):
-                        test_y = old_y  # choca también en Y, vuelve
+                        test_y = old_y
                     else:
-                        # prueba solo Y
                         if collides_at(old_x, new_y):
                             test_y = old_y
 
                 self.player.position.x = test_x
                 self.player.position.y = test_y
-                # Asegura que el destino no quede fuera
+
+                # Ajusta destino si quedó fuera
                 if collides_at(self.player.destination.x, self.player.destination.y):
                     self.player.destination = Vector2(self.player.position.x, self.player.position.y)
 
@@ -382,13 +357,13 @@ class Game:
                 self.camera.zoom -= 1.0 * dt
             self.camera.zoom = max(MIN_ZOOM, min(MAX_ZOOM, self.camera.zoom))
 
-            # Seguir al jugador
+            # Seguir + CLAMP cámara
             self.camera.target = Vector2(self.player.position.x, self.player.position.y)
+            self._clamp_camera_to_scene()
 
-        # Reloj del juego
         self.clock.update(dt)
 
-    # ------------------ Transiciones ------------------
+    # ===================== Transiciones =====================
 
     def _start_loading(self, target_scene_index: int, next_state: str) -> None:
         self.loading = True
@@ -404,7 +379,7 @@ class Game:
         self.swapped = False
         self.trans_elapsed = 0.0
 
-    # ------------------ Dibujo ------------------
+    # ===================== Dibujo =====================
 
     def _draw(self) -> None:
         begin_drawing()
@@ -471,11 +446,10 @@ class Game:
         # Resoluciones
         drop_y = sfx_y + gap_y
         draw_text("Resolución", block_x, drop_y - fsz(18), fsz(18), BLACK)
-
         drop_w = int(slider_w * 0.9)
         drop_h = max(28, ui_dims["button_h"])
         drop_label = f"{RESOLUTIONS[self.res_index][0]}x{RESOLUTIONS[self.res_index][1]}"
-        hovered, clicked = ui_helpers.button_left_rect(block_x, drop_y, drop_w, drop_h, drop_label, fsz(18))
+        _, clicked = ui_helpers.button_left_rect(block_x, drop_y, drop_w, drop_h, drop_label, fsz(18))
         if clicked:
             self.ui_state["res_dropdown_open"] = not self.ui_state["res_dropdown_open"]
 
@@ -499,27 +473,24 @@ class Game:
 
         if ui_helpers.draw_button_left(block_x, by, btn_w, btn_h, "Aplicar", font_size=fsz(20)):
             self._apply_resolution()
-
         if ui_helpers.draw_button_left(block_x + btn_w + gap_btn, by, btn_w, btn_h, "Volver", font_size=fsz(20)):
             self.state = STATE_MAIN_MENU
             self.ui_state["res_dropdown_open"] = False
 
     def _apply_resolution(self) -> None:
-        """Aplica la resolución seleccionada (y escala el mundo 5x)."""
         new_w, new_h = RESOLUTIONS[self.res_index]
         if new_w != self.screen_w or new_h != self.screen_h:
             self.screen_w, self.screen_h = new_w, new_h
             self.scene_w, self.scene_h = new_w * 5, new_h * 5
             set_window_size(self.screen_w, self.screen_h)
 
-            # Recrear escenas/mapa y reubicar jugador
             self.scenes = self._create_scenes()
             self.map_system = MapSystem(total_scenes=len(self.scenes))
             self.player.position = self._scene_center(self.scenes[self.active_scene_index])
 
-            # Cámara
             self._update_camera_offset()
             self.camera.target = Vector2(self.player.position.x, self.player.position.y)
+            self._clamp_camera_to_scene()
 
     def _draw_play_state(self, ui_dims: dict, fsz) -> None:
         begin_mode_2d(self.camera)
@@ -527,7 +498,7 @@ class Game:
         self.player.draw()
         end_mode_2d()
 
-        # HUD compacto
+        # HUD estilizado
         self._draw_hud(fsz)
 
         # Inventario y Mapa
@@ -552,93 +523,146 @@ class Game:
             if ui_helpers.draw_button_left(x, cy + 2 * (bh + gap), bw, bh, "Salir", font_size=fsz(20)):
                 self.running = False
 
-    # ---------- HUD ----------
-    def _current_location_name(self) -> str:
+    # ===================== Helpers visuales HUD =====================
+
+    def _color_scale(self, c: Color, factor: float) -> Color:
+        return Color(
+            int(max(0, min(255, c.r * factor))),
+            int(max(0, min(255, c.g * factor))),
+            int(max(0, min(255, c.b * factor))),
+            c.a
+        )
+
+    def _draw_text_shadow(self, text: str, x: int, y: int, fs: int, fg: Color) -> None:
+        draw_text(text, x + 1, y + 1, fs, Color(0, 0, 0, 120))
+        draw_text(text, x, y, fs, fg)
+
+    def _draw_panel(self, x: int, y: int, w: int, h: int, fill: Color, border: Color, radius: float = 0.2) -> None:
+        # sombra suave
+        draw_rectangle(x + 2, y + 2, w, h, Color(0, 0, 0, 60))
+        # rect redondeado (fallback a rect simple si no está la función)
         try:
-            return self.map_system.scene_names[self.active_scene_index]
+            draw_rectangle_rounded(Rectangle(x, y, w, h), radius, 8, fill)
+            draw_rectangle_rounded_lines(Rectangle(x, y, w, h), radius, 8, 2, border)
         except Exception:
-            return f"Escena {self.active_scene_index + 1}"
+            draw_rectangle(x, y, w, h, fill)
+            draw_rectangle_lines(x, y, w, h, border)
 
     def _draw_bar(self, x: int, y: int, w: int, h: int, value: float, max_value: float, color_fill: Color, label: str) -> None:
         ratio = 0.0 if max_value <= 0 else max(0.0, min(1.0, value / max_value))
-        draw_rectangle(x, y, w, h, Color(40, 40, 40, 200))
-        draw_rectangle(x + 2, y + 2, int((w - 4) * ratio), h - 4, color_fill)
-        draw_rectangle_lines(x, y, w, h, BLACK)
-        txt = f"{label}: {int(value)}/{int(max_value)}"
-        fs = max(14, h - 2)
-        draw_text(txt, x + 8, y - fs - 2, fs, BLACK)
+        back = Color(30, 30, 30, 170)
+        back_border = Color(15, 15, 15, 220)
+        fill_dark = self._color_scale(color_fill, 0.88)
+
+        self._draw_panel(x, y, w, h, back, back_border, radius=0.35)
+
+        inner_w = int((w - 6) * ratio)
+        if inner_w > 0:
+            self._draw_panel(x + 3, y + 3, inner_w, h - 6, color_fill, self._color_scale(fill_dark, 0.9), radius=0.35)
+
+        # Texto centrado dentro de la barra
+        fs = max(14, h - 8)
+        txt = f"{label} {int(value)}/{int(max_value)}"
+        tx = x + (w - measure_text(txt, fs)) // 2
+        ty = y + (h - fs) // 2
+        self._draw_text_shadow(txt, tx, ty, fs, Color(245, 245, 245, 240))
 
     def _draw_hotbar_right(self) -> None:
-        slot_size = min(64, int(self.screen_h * 0.07))
-        pad = max(6, int(slot_size * 0.1))
+        slot_size = min(60, int(self.screen_h * 0.068))
+        pad = max(6, int(slot_size * 0.12))
         total_h = self.hotbar_size * (slot_size + pad) - pad
-        x = self.screen_w - slot_size - 16
+        x = self.screen_w - slot_size - 20
         y = (self.screen_h - total_h) // 2
+
+        panel_w = slot_size + 20
+        panel_h = total_h + 20
+        self._draw_panel(x - 10, y - 10, panel_w, panel_h, Color(20, 20, 20, 130), Color(0, 0, 0, 180), radius=0.2)
 
         for i in range(self.hotbar_size):
             sx = x
             sy = y + i * (slot_size + pad)
 
-            bg = Color(80, 70, 60, 220)
+            slot_bg = Color(60, 58, 55, 210)
+            slot_border = Color(0, 0, 0, 200)
+            self._draw_panel(sx, sy, slot_size, slot_size, slot_bg, slot_border, radius=0.2)
+
             if i == self.hotbar_index:
-                bg = Color(120, 200, 255, 240)
-                draw_rectangle(sx - 4, sy - 4, slot_size + 8, slot_size + 8, Color(255, 255, 255, 40))
-            draw_rectangle(sx, sy, slot_size, slot_size, bg)
-            draw_rectangle_lines(sx, sy, slot_size, slot_size, Color(40, 35, 30, 255))
+                draw_rectangle_lines(sx - 3, sy - 3, slot_size + 6, slot_size + 6, Color(255, 220, 120, 255))
+                draw_rectangle_lines(sx - 1, sy - 1, slot_size + 2, slot_size + 2, Color(255, 255, 255, 90))
 
             num_text = str(i + 1)
-            nf = max(14, int(slot_size * 0.25))
-            draw_text(num_text, sx + 6, sy + 4, nf, BLACK)
+            nf = max(12, int(slot_size * 0.23))
+            self._draw_text_shadow(
+                num_text,
+                sx + slot_size - measure_text(num_text, nf) - 6,
+                sy + 4,
+                nf,
+                Color(240, 240, 240, 230),
+            )
 
             inv_idx = i
             if inv_idx < len(self.inventory.slots):
                 slot = self.inventory.slots[inv_idx]
                 if not slot.is_empty():
-                    icon_size = int(slot_size * 0.7)
+                    icon_size = int(slot_size * 0.72)
                     ix = sx + (slot_size - icon_size) // 2
                     iy = sy + (slot_size - icon_size) // 2
                     draw_rectangle(ix, iy, icon_size, icon_size, slot.item.icon_color)
-                    draw_rectangle_lines(ix, iy, icon_size, icon_size, BLACK)
+                    draw_rectangle_lines(ix, iy, icon_size, icon_size, Color(0, 0, 0, 160))
+
                     if slot.quantity > 1:
                         qty_text = str(slot.quantity)
-                        qf = max(14, int(slot_size * 0.28))
-                        draw_text(qty_text, sx + slot_size - measure_text(qty_text, qf) - 6,
-                                  sy + slot_size - qf - 4, qf, WHITE)
+                        qf = max(12, int(slot_size * 0.26))
+                        bx = sx + slot_size - measure_text(qty_text, qf) - 6
+                        by = sy + slot_size - qf - 5
+                        self._draw_text_shadow(qty_text, bx, by, qf, Color(255, 255, 255, 240))
+
+    def _current_location_name(self) -> str:
+        """Nombre legible de la escena actual (para el panel superior)."""
+        try:
+            return self.map_system.scene_names[self.active_scene_index]
+        except Exception:
+            return f"Escenario {self.active_scene_index + 1}"
 
     def _draw_hud(self, fsz) -> None:
-        # Panel superior: hora / día / temporada / lugar
+        # Panel superior a todo lo ancho, texto autoajustado
+        margin = 12
+        panel_x = margin
+        panel_y = margin
+        panel_w = self.screen_w - margin * 2
+        base_fs = fsz(22)
         top_text = f"{self.clock.time_hhmm()}  |  Día {self.clock.day}  |  {self.clock.season_name()}  |  {self._current_location_name()}"
-        font = fsz(22)
-        tw = measure_text(top_text, font)
-        draw_rectangle((self.screen_w - tw) // 2 - 12, 10, tw + 24, font + 16, Color(255, 255, 255, 140))
-        draw_rectangle_lines((self.screen_w - tw) // 2 - 12, 10, tw + 24, font + 16, Color(40, 40, 40, 200))
-        draw_text(top_text, (self.screen_w - tw) // 2, 18, font, BLACK)
+        fs_fit = self._fit_font(top_text, panel_w - 28, base_fs, 14)
+        panel_h = fs_fit + 18
 
-        # Vida y Estamina
-        bar_w = int(self.screen_w * 0.25)
-        bar_h = max(16, int(self.screen_h * 0.02))
-        base_x = 16
-        base_y = 16 + font + 20
+        self._draw_panel(panel_x, panel_y, panel_w, panel_h, Color(240, 240, 240, 170), Color(30, 30, 30, 200), radius=0.18)
+        text_x = panel_x + (panel_w - measure_text(top_text, fs_fit)) // 2
+        self._draw_text_shadow(top_text, text_x, panel_y + 9, fs_fit, Color(20, 20, 20, 240))
 
-        # Vida (usa Player.hp si lo añadiste; si no, puedes mapear a stamina)
-        if hasattr(self.player, "hp"):
-            self._draw_bar(base_x, base_y, bar_w, bar_h, getattr(self.player, "hp", 100.0), getattr(self.player, "max_hp", 100.0), Color(220, 70, 70, 255), "HP")
-        else:
-            # fallback: muestra solo estamina como HP para no romper HUD
-            self._draw_bar(base_x, base_y, bar_w, bar_h, self.player.stamina, self.player.max_stamina, Color(220, 70, 70, 255), "HP")
+        # Barras bajo el panel superior
+        bar_gap_y = 10
+        bar_w = min(int(self.screen_w * 0.32), 460)
+        bar_h = max(20, int(self.screen_h * 0.026))
+        bars_x = margin
+        first_bar_y = panel_y + panel_h + bar_gap_y
 
-        # Estamina
-        self._draw_bar(base_x, base_y + bar_h + 10, bar_w, bar_h, self.player.stamina, self.player.max_stamina, Color(70, 180, 90, 255), "STA")
+        # HP
+        hp_val = getattr(self.player, "hp", 100.0)
+        hp_max = getattr(self.player, "max_hp", 100.0)
+        self._draw_bar(bars_x, first_bar_y, bar_w, bar_h, hp_val, hp_max, Color(210, 70, 70, 255), "HP")
 
-        # Hotbar
+        # STA
+        sta_y = first_bar_y + bar_h + 8
+        self._draw_bar(bars_x, sta_y, bar_w, bar_h, self.player.stamina, self.player.max_stamina, Color(80, 180, 100, 255), "STA")
+
+        # Hotbar derecha
         self._draw_hotbar_right()
 
-    # ------------------ Overlay de carga ------------------
+    # ===================== Overlay de carga =====================
 
     def _draw_loading_overlay(self, fsz) -> None:
         if not self.loading:
             return
-
         if self.trans_elapsed < FADE_TIME:
             alpha = int((self.trans_elapsed / FADE_TIME) * 255)
         elif self.trans_elapsed < FADE_TIME + HOLD_TIME:
@@ -663,4 +687,10 @@ class Game:
             draw_texture_ex(self.loading_texture, Vector2(draw_x, draw_y), 0.0, scale, Color(255, 255, 255, alpha))
         else:
             fs = fsz(28)
-            draw_text("Cargando...", self.screen_w // 2 - measure_text("Cargando...", fs)//2, self.screen_h // 2 - fs // 2, fs, Color(220, 220, 220, max(120, alpha)))
+            draw_text(
+                "Cargando...",
+                self.screen_w // 2 - measure_text("Cargando...", fs) // 2,
+                self.screen_h // 2 - fs // 2,
+                fs,
+                Color(220, 220, 220, max(120, alpha)),
+            )
