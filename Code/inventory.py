@@ -78,6 +78,108 @@ class InventorySlot:
         add = min(free, amount)
         self.quantity += add
         return amount - add
+    # === ===  PERSISTENCIA ROBUSTA DEL INVENTARIO  === ===
+    # Guarda por CASILLA (fila/col), así el hotbar y el grid vuelven igual.
+    def export_state(self) -> dict:
+        """
+        Devuelve un dict serializable con toda la cuadrícula del inventario.
+        Formato:
+        {
+          "rows": int, "cols": int,
+          "items": [ {"r":int,"c":int,"id":str,"qty":int}, ... ]
+        }
+        """
+        data = {"rows": int(getattr(self, "rows", 0)),
+                "cols": int(getattr(self, "cols", 0)),
+                "items": []}
+        rows = data["rows"]; cols = data["cols"]
+
+        def _slot_at(r, c):
+            if hasattr(self, "get_slot") and callable(self.get_slot):
+                return self.get_slot(r, c)
+            idx = r * cols + c
+            slots = getattr(self, "slots", [])
+            return slots[idx] if 0 <= idx < len(slots) else None
+
+        for r in range(rows):
+            for c in range(cols):
+                slot = _slot_at(r, c)
+                if not slot:
+                    continue
+                try:
+                    if hasattr(slot, "is_empty") and slot.is_empty():
+                        continue
+                except Exception:
+                    pass
+
+                # Detectar ID y cantidad en implementaciones típicas
+                item_id = None
+                it = getattr(slot, "item", None)
+                if isinstance(it, dict):
+                    item_id = it.get("id") or it.get("name")
+                elif it is not None:
+                    item_id = getattr(it, "id", None) or getattr(it, "name", None)
+                item_id = item_id or getattr(slot, "id", None) or getattr(slot, "item_id", None)
+
+                qty = int(getattr(slot, "quantity",
+                          getattr(slot, "qty",
+                          getattr(slot, "count", 0))))
+
+                if item_id and qty > 0:
+                    data["items"].append({"r": r, "c": c, "id": str(item_id), "qty": qty})
+        return data
+
+    def import_state(self, state: dict) -> None:
+        """
+        Restaura exactamente lo exportado por export_state().
+        Intenta set_slot(r,c,...) si existe; si no, usa add_item() como respaldo.
+        """
+        # Limpiar inventario actual
+        try:
+            if hasattr(self, "clear_all"):
+                self.clear_all()
+            else:
+                for s in getattr(self, "slots", []):
+                    try: s.clear()
+                    except Exception: pass
+        except Exception:
+            pass
+
+        items = (state or {}).get("items", [])
+        rows = int(getattr(self, "rows", 0)); cols = int(getattr(self, "cols", 0))
+        use_set_slot = hasattr(self, "set_slot") and callable(getattr(self, "set_slot"))
+
+        for it in items:
+            item_id = it.get("id"); qty = int(it.get("qty", 1))
+            r = int(it.get("r", 0)); c = int(it.get("c", 0))
+            if not item_id or qty <= 0:
+                continue
+
+            placed = False
+            if use_set_slot and 0 <= r < rows and 0 <= c < cols:
+                try:
+                    try:
+                        self.set_slot(r, c, item_id, qty)          # set_slot(r,c,id,qty)
+                        placed = True
+                    except TypeError:
+                        self.set_slot(r, c, {"id": item_id}, qty)  # set_slot(r,c, dict, qty)
+                        placed = True
+                except Exception:
+                    placed = False
+
+            if not placed and hasattr(self, "add_item"):
+                try:
+                    res = self.add_item(item_id, qty)  # muchas impl. devuelven True/False o None
+                    placed = (res is None) or bool(res)
+                except Exception:
+                    placed = False
+
+            if not placed and hasattr(self, "add_item"):
+                for _ in range(qty):
+                    try:
+                        self.add_item(item_id, 1)
+                    except Exception:
+                        break
 
 
 # ============ Inventario ============
