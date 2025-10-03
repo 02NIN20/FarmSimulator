@@ -14,6 +14,7 @@ from map_system import MapSystem
 from zones_geometry import zone2_alaska_polygon, zone3_ppr_polygon, zone4_michigan_polygon
 from ground_spawns import SpawnManager
 from save_system import SaveManager
+from animal_spawns import AnimalManager   # === ANIMALES ===
 
 # ----------------- Config -----------------
 
@@ -103,6 +104,10 @@ class Game:
         self.map_system = MapSystem(total_scenes=len(self.scenes))
         self.spawns = SpawnManager(self.inventory)
 
+        # === ANIMALES === gestor de fauna
+        self.animals = AnimalManager()
+        self._pending_attack = False  # flag de ataque por tecla
+
         # hotbar
         self.hotbar_size = min(9, self.inventory.cols)
         self.hotbar_index = 0
@@ -128,13 +133,14 @@ class Game:
 
         # assets
         self.loading_texture: Optional[Texture2D] = None
+        self.spring_texture: Optional[Texture2D] = None  # <--- portada Primavera
         self._load_assets()
 
         # Menú principal estacional
         self.main_menu = {"t": 0.0, "selected": 0, "credits_open": False, "theme": "Primavera", "particles": []}
         self._init_main_menu_theme()
 
-        # Guardados y cabañas
+        # Guardados
         self.save_mgr = SaveManager("saves")
         self.current_save_id: str | None = None
         self.current_save_name: str = ""
@@ -224,10 +230,20 @@ class Game:
             except Exception:
                 self.loading_texture = None
 
+        # --- Portada personalizada para Primavera ---
+        try:
+            # coloca tu imagen en assets/apertura.png
+            self.spring_texture = load_texture("assets/apertura.png")
+        except Exception:
+            self.spring_texture = None
+
     def _unload_assets(self) -> None:
         if self.loading_texture is not None:
             unload_texture(self.loading_texture)
             self.loading_texture = None
+        if self.spring_texture is not None:
+            unload_texture(self.spring_texture)
+            self.spring_texture = None
 
     # ---------- loop ----------
     def run(self) -> None:
@@ -296,6 +312,11 @@ class Game:
             if is_key_pressed(KEY_E) and self._player_near_cabin():
                 self._sleep_and_save()
 
+        # === ANIMALES ===: ataque jugador (tecla ESPACIO)
+        if (self.state == STATE_PLAY and not self.loading and
+            not self.ingame_menu_open and not self.inventory.is_open and not self.map_system.is_open):
+            self._pending_attack = is_key_pressed(KEY_SPACE)
+
         # Mapa: click viajar
         if (self.state == STATE_PLAY and not self.loading and self.map_system.is_open and not self.ingame_menu_open):
             if is_mouse_button_pressed(MOUSE_LEFT_BUTTON):
@@ -348,6 +369,11 @@ class Game:
                     except Exception:
                         poly = None
                     self.spawns.on_enter_scene(self.active_scene_index, self.scenes[self.active_scene_index].size, poly)
+                    # === ANIMALES ===: spawns al entrar
+                    try:
+                        self.animals.on_enter_scene(self.active_scene_index, self.scenes[self.active_scene_index].size, poly)
+                    except Exception:
+                        pass
                 self.swapped = True
             if self.trans_elapsed >= TRANSITION_TIME:
                 self._end_loading()
@@ -393,6 +419,41 @@ class Game:
                 self.player.position.x, self.player.position.y = test_x, test_y
                 if collides_at(self.player.destination.x, self.player.destination.y):
                     self.player.destination = Vector2(self.player.position.x, self.player.position.y)
+
+            # === ANIMALES ===: actualizar IA y aplicar daño recibido
+            try:
+                damages = self.animals.update(self.active_scene_index, dt, self.player.position)
+                for dmg in damages:
+                    if hasattr(self.player, "apply_damage"):
+                        self.player.apply_damage(dmg)
+                    else:
+                        # fallback mínimo si Player no tiene apply_damage
+                        self.player.hp = max(0.0, getattr(self.player, "hp", 100.0) - float(dmg))
+            except Exception:
+                pass
+
+            # === ANIMALES ===: ataque del jugador si pulsó ESPACIO
+            if self._pending_attack:
+                did_attack = False
+                if hasattr(self.player, "try_attack"):
+                    try:
+                        did_attack = bool(self.player.try_attack(dt))
+                    except Exception:
+                        did_attack = False
+                if not did_attack:
+                    # Fallback si Player no implementa try_attack: consume STA y aplica daño
+                    cost = 16.0
+                    if getattr(self.player, "stamina", 0.0) >= cost:
+                        self.player.stamina = max(0.0, self.player.stamina - cost)
+                        did_attack = True
+                if did_attack:
+                    # radio y daño por defecto si Player no los trae
+                    radius = float(getattr(self.player, "attack_radius", 40.0))
+                    damage = float(getattr(self.player, "attack_damage", 22.0))
+                    try:
+                        self.animals.damage_in_radius(self.active_scene_index, self.player.position, radius, damage)
+                    except Exception:
+                        pass
 
             # zoom y cámara
             if is_key_down(KEY_EQUAL) or is_key_down(KEY_KP_ADD):
@@ -556,8 +617,20 @@ class Game:
 
     def _draw_menu_background(self) -> None:
         theme = self.main_menu.get("theme", "Primavera")
+
+        # --- Fondo según tema ---
         if theme == "Primavera":
-            draw_rectangle_gradient_v(0, 0, self.screen_w, self.screen_h, Color(224,238,224,255), Color(205,228,205,255))
+            # Si hay textura personalizada, usarla; si no, fallback al gradiente original
+            if self.spring_texture is not None:
+                tex = self.spring_texture
+                scale = min(self.screen_w / tex.width, self.screen_h / tex.height)
+                draw_w = int(tex.width * scale)
+                draw_h = int(tex.height * scale)
+                draw_x = (self.screen_w - draw_w) // 2
+                draw_y = (self.screen_h - draw_h) // 2
+                draw_texture_ex(tex, Vector2(draw_x, draw_y), 0.0, scale, WHITE)
+            else:
+                draw_rectangle_gradient_v(0, 0, self.screen_w, self.screen_h, Color(224,238,224,255), Color(205,228,205,255))
             grid_c = Color(80,120,90,25)
         elif theme == "Verano":
             draw_rectangle_gradient_v(0, 0, self.screen_w, self.screen_h, Color(210,232,252,255), Color(158,203,251,255))
@@ -569,11 +642,15 @@ class Game:
         else:
             draw_rectangle_gradient_v(0, 0, self.screen_w, self.screen_h, Color(226,236,246,255), Color(200,218,238,255))
             grid_c = Color(60,90,120,25)
+
+        # Rejilla sutil superpuesta
         cell = max(48, int(self.screen_h * 0.08))
         for x in range(0, self.screen_w, cell):
             draw_line(x, 0, x, self.screen_h, grid_c)
         for y in range(0, self.screen_h, cell):
             draw_line(0, y, self.screen_w, y, grid_c)
+
+        # Partículas encima del fondo
         begin_blend_mode(BLEND_ALPHA)
         if theme in ("Primavera", "Invierno"):
             for p in self.main_menu["particles"]:
@@ -618,7 +695,7 @@ class Game:
         lines = [
             "Astra — NASA Space Apps Challenge", "",
             "Diseño y desarrollo: Equipo Astra",
-            "Arte y UI: Denisse (personaje), mapas y HUD",
+            "Arte y UI: Denisse (personaje), mapas y HUD)",
             "Tecnologías: Python + raylib (pyray)",
         ]
         ty = y + 64
@@ -697,6 +774,11 @@ class Game:
         begin_mode_2d(self.camera)
         self.scenes[self.active_scene_index].draw()
         self._draw_cabins_world()
+        # === ANIMALES === dibujar fauna en el mundo
+        try:
+            self.animals.draw(self.active_scene_index)
+        except Exception:
+            pass
         self.spawns.draw(self.active_scene_index)
         self.player.draw()
         self.spawns.update(self.active_scene_index, self.player.position)
@@ -1228,7 +1310,7 @@ class Game:
             key = get_key_pressed()
 
     def _draw_save_slots(self, fsz) -> None:
-        # Fondo
+        # Fondo cuadriculado sutil
         draw_rectangle(0, 0, self.screen_w, self.screen_h, Color(245,245,245,255))
         grid_c = Color(0, 0, 0, 10)
         cell = max(48, int(self.screen_h * 0.08))
@@ -1279,6 +1361,8 @@ class Game:
             btn_h = 38
             bx = panel_x + panel_w - btn_w - 16
             by = row_y + (row_h - btn_h)//2
+
+            # CARGAR
             if ui_helpers.draw_button_left(bx, by, btn_w, btn_h, "Cargar", font_size=fsz(20)):
                 data = self.save_mgr.load(s["id"])
                 if data:
@@ -1287,14 +1371,18 @@ class Game:
                     self._apply_save_data(data)
                     self._start_loading(self.active_scene_index, STATE_PLAY, keep_player_pos=True)
                     return
+
+            # ELIMINAR
             if ui_helpers.draw_button_left(bx - (btn_w+10), by, btn_w, btn_h, "Eliminar", font_size=fsz(20)):
                 self.save_mgr.delete(s["id"])
-                return
+                return  # refrescar la lista
+
+            # RENOMBRAR
             if ui_helpers.draw_button_left(bx - 2*(btn_w+10), by, btn_w, btn_h, "Renombrar", font_size=fsz(20)):
                 self._rename_slot_id = s["id"]
                 self._rename_buffer = s["name"]
 
-        # Renombrar
+        # Renombrar (input línea inferior)
         if self._rename_slot_id:
             self._handle_rename_input()
             txt = f"Nuevo nombre: {self._rename_buffer}_"
@@ -1305,124 +1393,27 @@ class Game:
             draw_text("Escribe y pulsa Enter para confirmar, Backspace para borrar", x+10, ry+8, fsz(16), BLACK)
             draw_text(txt, x+10, ry+32, fsz(20), BLACK)
 
-        # Crear partida (nombre)
+        # Crear partida
         bottom_y = y + len(slots)*(row_h + gap) + (70 if self._rename_slot_id else 0) + 18
         if ui_helpers.draw_button_left(panel_x, bottom_y, 260, 46, "Crear partida", font_size=fsz(22)):
             self._newgame_modal_open = True
             self._newgame_name = ""
 
+        # Modal nueva partida
         if self._newgame_modal_open:
-            mw, mh = int(self.screen_w*0.46), 160    # === ===  PERSISTENCIA ROBUSTA DEL INVENTARIO  === ===
-    # Guarda por CASILLA (fila/col), así el hotbar y el grid vuelven igual.
-    def export_state(self) -> dict:
-        """
-        Devuelve un dict serializable con toda la cuadrícula del inventario.
-        Formato:
-        {
-          "rows": int, "cols": int,
-          "items": [ {"r":int,"c":int,"id":str,"qty":int}, ... ]
-        }
-        """
-        data = {"rows": int(getattr(self, "rows", 0)),
-                "cols": int(getattr(self, "cols", 0)),
-                "items": []}
-        rows = data["rows"]; cols = data["cols"]
-
-        def _slot_at(r, c):
-            if hasattr(self, "get_slot") and callable(self.get_slot):
-                return self.get_slot(r, c)
-            idx = r * cols + c
-            slots = getattr(self, "slots", [])
-            return slots[idx] if 0 <= idx < len(slots) else None
-
-        for r in range(rows):
-            for c in range(cols):
-                slot = _slot_at(r, c)
-                if not slot:
-                    continue
-                try:
-                    if hasattr(slot, "is_empty") and slot.is_empty():
-                        continue
-                except Exception:
-                    pass
-
-                # Detectar ID y cantidad en implementaciones típicas
-                item_id = None
-                it = getattr(slot, "item", None)
-                if isinstance(it, dict):
-                    item_id = it.get("id") or it.get("name")
-                elif it is not None:
-                    item_id = getattr(it, "id", None) or getattr(it, "name", None)
-                item_id = item_id or getattr(slot, "id", None) or getattr(slot, "item_id", None)
-
-                qty = int(getattr(slot, "quantity",
-                          getattr(slot, "qty",
-                          getattr(slot, "count", 0))))
-
-                if item_id and qty > 0:
-                    data["items"].append({"r": r, "c": c, "id": str(item_id), "qty": qty})
-        return data
-
-    def import_state(self, state: dict) -> None:
-        """
-        Restaura exactamente lo exportado por export_state().
-        Intenta set_slot(r,c,...) si existe; si no, usa add_item() como respaldo.
-        """
-        # Limpiar inventario actual
-        try:
-            if hasattr(self, "clear_all"):
-                self.clear_all()
-            else:
-                for s in getattr(self, "slots", []):
-                    try: s.clear()
-                    except Exception: pass
-        except Exception:
-            pass
-
-        items = (state or {}).get("items", [])
-        rows = int(getattr(self, "rows", 0)); cols = int(getattr(self, "cols", 0))
-        use_set_slot = hasattr(self, "set_slot") and callable(getattr(self, "set_slot"))
-
-        for it in items:
-            item_id = it.get("id"); qty = int(it.get("qty", 1))
-            r = int(it.get("r", 0)); c = int(it.get("c", 0))
-            if not item_id or qty <= 0:
-                continue
-
-            placed = False
-            if use_set_slot and 0 <= r < rows and 0 <= c < cols:
-                try:
-                    try:
-                        self.set_slot(r, c, item_id, qty)          # set_slot(r,c,id,qty)
-                        placed = True
-                    except TypeError:
-                        self.set_slot(r, c, {"id": item_id}, qty)  # set_slot(r,c, dict, qty)
-                        placed = True
-                except Exception:
-                    placed = False
-
-            if not placed and hasattr(self, "add_item"):
-                try:
-                    res = self.add_item(item_id, qty)  # muchas impl. devuelven True/False o None
-                    placed = (res is None) or bool(res)
-                except Exception:
-                    placed = False
-
-            if not placed and hasattr(self, "add_item"):
-                for _ in range(qty):
-                    try:
-                        self.add_item(item_id, 1)
-                    except Exception:
-                        break
-
+            mw, mh = int(self.screen_w*0.46), 160
             mx, my = (self.screen_w-mw)//2, (self.screen_h-mh)//2
             self._draw_panel(mx, my, mw, mh, Color(250,250,250,255), Color(80,80,80,220), 0.06)
             draw_text("Nombre de la partida:", mx+18, my+16, fsz(24), BLACK)
+
+            # caja de texto
             self._handle_newgame_name_input()
             box_h = 40
             box_w = mw - 36
             self._draw_panel(mx+18, my+56, box_w, box_h, Color(240,240,240,255), Color(90,90,90,230), 0.06)
             draw_text(self._newgame_name + "_", mx+24, my+64, fsz(20), BLACK)
+
+            # botones
             if ui_helpers.draw_button_left(mx+mw-140-18, my+mh-44, 140, 38, "Crear", font_size=fsz(20)):
                 if self._newgame_name.strip():
                     self._create_new_game(self._newgame_name.strip())

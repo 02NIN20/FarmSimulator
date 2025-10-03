@@ -1,0 +1,82 @@
+{
+  "id": "slot_2",
+  "name": "mundo",
+  "scene_index": 4,
+  "player": {
+    "x": 2200.96826171875,
+    "y": 1778.0224609375
+  },
+  "clock_elapsed": 1238.3407894782722,
+  "seconds_per_day": 300.0,
+  "inventory": [
+    {
+      "id": "Semilla de Maíz",
+      "qty": 10
+    },
+    {
+      "id": "Semilla de Trigo",
+      "qty": 6
+    },
+    {
+      "id": "Agua",
+      "qty": 20
+    },
+    {
+      "id": "Fertilizante",
+      "qty": 8
+    },
+    {
+      "id": "Semilla de Zanahoria",
+      "qty": 2
+    },
+    {
+      "id": "Sección de tronco (pequeña)",
+      "qty": 2
+    },
+    {
+      "id": "Roca",
+      "qty": 17
+    },
+    {
+      "id": "Hojas",
+      "qty": 21
+    },
+    {
+      "id": "Semilla de Col repollo",
+      "qty": 1
+    },
+    {
+      "id": "Semilla de Canola",
+      "qty": 14
+    },
+    {
+      "id": "Semilla de Girasol",
+      "qty": 5
+    },
+    {
+      "id": "Semilla de Cebada cervecera",
+      "qty": 3
+    },
+    {
+      "id": "Mena de hierro",
+      "qty": 1
+    },
+    {
+      "id": "Rama de madera",
+      "qty": 4
+    },
+    {
+      "id": "Semilla de Guisante seco (field pea)",
+      "qty": 6
+    },
+    {
+      "id": "Semilla de Soja",
+      "qty": 1
+    },
+    {
+      "id": "Semilla de Trigo de primavera",
+      "qty": 2
+    }
+  ],
+  "updated": "2025-10-03 16:26:54"
+}

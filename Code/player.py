@@ -5,10 +5,8 @@ from pyray import *
 import os
 from math import sqrt
 
-# -------------------- util de rutas robustas --------------------
-
 def _paths_variants(filename: str) -> List[str]:
-    here = os.path.dirname(__file__)  # carpeta donde está player.py
+    here = os.path.dirname(__file__)
     cand = [
         os.path.join(here, "assets", filename),
         os.path.join(here, "Assets", filename),
@@ -16,10 +14,9 @@ def _paths_variants(filename: str) -> List[str]:
         os.path.join(here, "Sprites", filename),
         os.path.join(here, "characters", filename),
         os.path.join(here, "assets", "characters", filename),
-        os.path.join(here, filename),                # mismo nivel que player.py
-        os.path.join(here, "..", "assets", filename),
-        os.path.join(here, "..", "Sprites", filename),
-        # por si acaso, relativas al cwd:
+        os.path.join(here, filename),
+        os.path.join(here, ".", "assets", filename),
+        os.path.join(here, ".", "Sprites", filename),
         os.path.join("assets", filename),
         os.path.join("Assets", filename),
         filename,
@@ -40,15 +37,10 @@ def _try_load_texture_many(candidates: List[str]) -> Optional[Texture2D]:
             pass
     return None
 
-# ------------------------- Player -------------------------
-
 class Player:
     def __init__(self, start_pos: Vector2) -> None:
-        # Posición / destino (coordenadas de mundo)
         self.position: Vector2 = Vector2(start_pos.x, start_pos.y)
         self.destination: Vector2 = Vector2(start_pos.x, start_pos.y)
-
-        # Tamaño lógico para colisiones (no el visual del sprite)
         self.size: float = 24.0
 
         # Stats
@@ -56,6 +48,13 @@ class Player:
         self.hp: float = 100.0
         self.max_stamina: float = 100.0
         self.stamina: float = 100.0
+
+        # Combate
+        self.attack_radius: float = 40.0
+        self.attack_damage: float = 22.0
+        self.attack_cost_sta: float = 16.0
+        self._attack_cd: float = 0.0
+        self.attack_cooldown_time: float = 0.45
 
         # Movimiento / anim
         self.walk_speed: float = 170.0
@@ -67,17 +66,14 @@ class Player:
         self._frame_idle_right: Optional[Texture2D] = None
         self._frame_idle_left:  Optional[Texture2D] = None
 
-        # ---- Ajustes visuales y de animación ----
         self._visual_height: float = 100
-        self._feet_offset: float = 8.0   # ↓ Denisse baja un poco respecto al suelo
+        self._feet_offset: float = 8.0
         self._anim_base_fps: float = 7.0
         self._anim_time: float = 0.0
         self._last_move_dist: float = 0.0
 
         self._fallback_color = RED
         self._load_sprites()
-
-    # ----------------- carga sprites -----------------
 
     def _load_sprites(self) -> None:
         right_files = [
@@ -103,7 +99,7 @@ class Player:
         self._frame_idle_left  = self._frames_left[0]  if self._frames_left  else None
 
         if not self._frames_right or not self._frames_left:
-            print("[PLAYER] Aviso: no se encontraron todos los sprites. Buscando relativo a:", os.path.dirname(__file__))
+            print("[PLAYER] Aviso: no se encontraron todos los sprites.")
 
     def unload(self) -> None:
         for t in self._frames_right:
@@ -115,21 +111,32 @@ class Player:
         self._frames_right.clear()
         self._frames_left.clear()
 
-    # -------------------- helpers input --------------------
-
     @staticmethod
     def _get_attr_or_key(p_input: Any, name: str, default=None):
-        """Obtiene 'name' de un dict o atributo de objeto."""
         try:
-            return p_input.get(name)            # dict-like
+            return p_input.get(name)
         except Exception:
             return getattr(p_input, name, default)
 
-    # -------------------- update --------------------
+    def try_attack(self, dt: float) -> bool:
+        """Intenta atacar (controlado desde Game con tecla). Consume STA y respeta cooldown."""
+        if self._attack_cd > 0.0:
+            return False
+        if self.stamina < self.attack_cost_sta:
+            return False
+        self.stamina = max(0.0, self.stamina - self.attack_cost_sta)
+        self._attack_cd = self.attack_cooldown_time
+        return True
+
+    def apply_damage(self, dmg: float) -> None:
+        self.hp = max(0.0, self.hp - max(0.0, dmg))
 
     def update(self, p_input: Any, dt: float) -> None:
-        """Acepta tanto dict como PlayerInput (move_vector, is_sprinting, has_destination, destination_point)."""
-        # 1) destino desde PlayerInput
+        # cooldown de ataque
+        if self._attack_cd > 0.0:
+            self._attack_cd = max(0.0, self._attack_cd - dt)
+
+        # 1) destino
         dest_field = None
         if p_input is not None:
             dest_field = self._get_attr_or_key(p_input, "destination_point", None)
@@ -142,10 +149,10 @@ class Player:
             elif isinstance(dest_field, (tuple, list)) and len(dest_field) == 2:
                 self.destination = Vector2(float(dest_field[0]), float(dest_field[1]))
 
-        # 2) sprint (tu input usa is_sprinting)
+        # 2) sprint
         run_flag = False
         if p_input is not None:
-            for key in ("is_sprinting", "run", "running", "is_running", "sprint", "shift"):
+            for key in ("is_sprinting","run","running","is_running","sprint","shift"):
                 if bool(self._get_attr_or_key(p_input, key, False)):
                     run_flag = True
                     break
@@ -175,10 +182,10 @@ class Player:
                 self.position.y += vy * step
                 moved_dist = step
             moved = True
-            if abs(vx) >= 0.1:  # mirar según dirección principal X
+            if abs(vx) >= 0.1:
                 self._facing_right = vx >= 0.0
 
-        # 4) si tu input trae move_vector (p. ej. teclado), úsalo si no hay destino o ya llegó
+        # 4) vector directo (por si agregas teclado futuro)
         if (not moved or dist <= 1.0) and p_input is not None:
             mv = self._get_attr_or_key(p_input, "move_vector", None)
             if mv is not None and hasattr(mv, "x") and hasattr(mv, "y"):
@@ -195,7 +202,6 @@ class Player:
         self._moving = moved
         self._last_move_dist = moved_dist
 
-        # Avance del reloj de animación con factor según velocidad real (más natural)
         if self._moving:
             current_speed = self._last_move_dist / max(dt, 1e-6)
             factor = max(0.4, min(1.2, current_speed / max(1.0, self.walk_speed)))
@@ -207,12 +213,9 @@ class Player:
         self.hp = max(0.0, min(self.max_hp, self.hp))
         self.stamina = max(0.0, min(self.max_stamina, self.stamina))
 
-    # -------------------- draw --------------------
-
     def draw(self) -> None:
         tex = self._choose_texture()
         if tex is None or getattr(tex, "id", 0) == 0:
-            # fallback: cuadrado rojo
             s = int(self.size)
             draw_rectangle(int(self.position.x - s/2), int(self.position.y - s/2), s, s, self._fallback_color)
             draw_rectangle_lines(int(self.position.x - s/2), int(self.position.y - s/2), s, s, BLACK)
@@ -221,18 +224,10 @@ class Player:
         scale = self._visual_height / max(1, tex.height)
         draw_w = int(tex.width * scale)
         draw_h = int(tex.height * scale)
-
-        # Anclar a los pies (más abajo por feet_offset)
         draw_x = int(self.position.x - draw_w / 2)
         draw_y = int(self.position.y - draw_h + self._feet_offset)
 
-        # ---- Sombra más pequeña y pegada al suelo ----
-        sh_w = int(self._visual_height * 0.24)  # antes 0.30
-        sh_h = int(self._visual_height * 0.07)  # antes 0.10
-        sh_w = max(10, sh_w)
-        sh_h = max(5, sh_h)
-        draw_ellipse(int(self.position.x), int(self.position.y - 1), sh_w, sh_h, Color(0, 0, 0, 58))
-
+        draw_ellipse(int(self.position.x), int(self.position.y - 1), int(self._visual_height * 0.24), int(self._visual_height * 0.07), Color(0, 0, 0, 58))
         draw_texture_ex(tex, Vector2(draw_x, draw_y), 0.0, scale, WHITE)
 
     def _choose_texture(self) -> Optional[Texture2D]:

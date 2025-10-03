@@ -1,6 +1,7 @@
 # ui_helpers.py
 
 from __future__ import annotations
+from typing import Tuple, Dict, Any
 from pyray import *
 
 # Valores por defecto
@@ -23,73 +24,73 @@ def calc_font(screen_h: int, base_font: int) -> int:
     """Escalado lineal del tamaño de fuente según la altura de la ventana."""
     return max(12, int(base_font * (screen_h / REF_H)))
 
+def _mouse_in_rect(x: int, y: int, w: int, h: int) -> bool:
+    m = get_mouse_position()
+    mx, my = int(m.x), int(m.y)
+    return (mx >= x and mx <= x + w and my >= y and my <= y + h)
+
 def draw_button_left(x: int, y: int, w: int, h: int, text: str, font_size: int = 22) -> bool:
-    """Dibuja un botón alineado a la izquierda. Retorna True si fue clickeado."""
-    mouse = get_mouse_position()
-    mx, my = int(mouse.x), int(mouse.y)
-    hovered = (mx >= x and mx <= x + w and my >= y and my <= y + h)
+    """Dibuja un botón alineado a la izquierda. Retorna True si fue clicado."""
+    hovered = _mouse_in_rect(x, y, w, h)
     bg = SKYBLUE if hovered else DARKGRAY
     txt_color = BLACK if hovered else WHITE
 
     draw_rectangle(x, y, w, h, bg)
     draw_rectangle_lines(x, y, w, h, BLACK)
-
     draw_text(text, x + 8, y + (h - font_size) // 2, font_size, txt_color)
 
-    clicked = hovered and is_mouse_button_pressed(MOUSE_LEFT_BUTTON)
+    clicked = hovered and is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
     return clicked
 
-def button_left_rect(x: int, y: int, w: int, h: int, text: str, font_size: int = 22) -> tuple[bool, bool]:
-    """Dibuja un botón y retorna (hovered, clicked)."""
+def button_left_rect(x: int, y: int, w: int, h: int, text: str, font_size: int = 22) -> Tuple[Rectangle, bool]:
+    """Como draw_button_left pero devuelve también el rectángulo de dibujo."""
+    clicked = draw_button_left(x, y, w, h, text, font_size)
+    return Rectangle(x, y, w, h), clicked
+
+def slider_horizontal(x: int, y: int, w: int, h: int, value: float, dragging_flag: str, state: Dict[str, Any]) -> float:
+    """Dibuja un slider horizontal [0..1] y devuelve el nuevo valor.
+    Usa state[dragging_flag] para arrastre continuo.
+    """
+    # Inicializa flag si falta
+    if dragging_flag not in state:
+        state[dragging_flag] = False
+
+    # Clamp valor
+    value = max(0.0, min(1.0, float(value)))
+
+    # Pista
+    track_color = Color(210, 210, 210, 255)
+    draw_rectangle(x, y + h // 2 - 3, w, 6, track_color)
+    draw_rectangle_lines(x, y, w, h, BLACK)
+
+    # Handle
+    handle_w = max(14, h)
+    handle_h = h
+    handle_x = x + int(value * (w - handle_w))
+    handle_y = y
+    draw_rectangle(handle_x, handle_y, handle_w, handle_h, GRAY)
+    draw_rectangle_lines(handle_x, handle_y, handle_w, handle_h, BLACK)
+
+    # Entrada de ratón
     mouse = get_mouse_position()
     mx, my = int(mouse.x), int(mouse.y)
-    hovered = (mx >= x and mx <= x + w and my >= y and my <= y + h)
-    bg = SKYBLUE if hovered else DARKGRAY
-    txt_color = BLACK if hovered else WHITE
 
-    draw_rectangle(x, y, w, h, bg)
-    draw_rectangle_lines(x, y, w, h, BLACK)
-    draw_text(text, x + 8, y + (h - font_size) // 2, font_size, txt_color)
+    over_track = (mx >= x and mx <= x + w and my >= y and my <= y + h)
+    over_handle = (mx >= handle_x and mx <= handle_x + handle_w and my >= handle_y and my <= handle_y + handle_h)
 
-    clicked = hovered and is_mouse_button_pressed(MOUSE_LEFT_BUTTON)
-    return hovered, clicked
+    # Comienza arrastre
+    if is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and (over_handle or over_track):
+        state[dragging_flag] = True
 
-def slider_horizontal(x: int, y: int, w: int, h: int, value: float, dragging_flag_name: str, state_dict: dict) -> float:
-    """Dibuja un slider horizontal. value es 0..1. Devuelve el nuevo valor."""
-    mouse = get_mouse_position()
-    mx, my = mouse.x, mouse.y
-    track_color = DARKGRAY
-    handle_color = SKYBLUE
+    # Termina arrastre
+    if state[dragging_flag] and is_mouse_button_released(MOUSE_BUTTON_LEFT):
+        state[dragging_flag] = False
 
-    # track
-    track_h = max(4, int(h * 0.4))
-    draw_rectangle(x, y + (h // 2) - (track_h // 2), w, track_h, track_color)
-
-    # handle
-    handle_h = max(6, int(h * 1.01))
-    handle_w = max(6, int(h * 1.01))
-
-    handle_x = int(x + max(0, min(w, value * w)) - handle_w // 2)
-    handle_y = int(y + (h - handle_h) // 2)
-
-    mouse_pressed = is_mouse_button_pressed(MOUSE_LEFT_BUTTON)
-    mouse_down = is_mouse_button_down(MOUSE_LEFT_BUTTON)
-
-    hovered_handle = (mx >= handle_x and mx <= handle_x + handle_w and my >= handle_y and my <= handle_y + handle_h)
-    hovered_track = (mx >= x and mx <= x + w and my >= y and my <= y + h)
-    
-    if mouse_pressed and (hovered_handle or hovered_track):
-        state_dict[dragging_flag_name] = True
-        
-    if not mouse_down:
-        state_dict[dragging_flag_name] = False
-
-    if state_dict.get(dragging_flag_name, False):
-        rel = (mx - x) / max(1.0, w)
+    # Actualiza valor si arrastrando
+    if state[dragging_flag]:
+        # Posición relativa del mouse dentro del slider
+        rel = (mx - x - handle_w / 2) / max(1, (w - handle_w))
         value = max(0.0, min(1.0, rel))
-
-    draw_rectangle(handle_x, handle_y, handle_w, handle_h, handle_color)
-    draw_rectangle_lines(handle_x, handle_y, handle_w, handle_h, BLACK)
 
     return value
 
