@@ -158,10 +158,14 @@ class MapSystem:
         fill = self._tint(base_col, 1.06) if hovered else base_col
         try:
             draw_rectangle_rounded(Rectangle(x, y, w, h), 0.12, 8, fill)
-            draw_rectangle_rounded_lines(Rectangle(x, y, w, h), 0.12, 8, 2, Color(30, 30, 30, 200))
+            # 🔹 Quita el borde solo del escenario 2
+            if index_number != 2:
+                draw_rectangle_rounded_lines(Rectangle(x, y, w, h), 0.12, 8, 2, Color(30, 30, 30, 200))
         except Exception:
             draw_rectangle(x, y, w, h, fill)
-            draw_rectangle_lines(x, y, w, h, Color(30, 30, 30, 200))
+            if index_number != 2:
+                draw_rectangle_lines(x, y, w, h, Color(30, 30, 30, 200))
+
 
         # Borde de selección
         if selected:
@@ -177,14 +181,11 @@ class MapSystem:
         shape_area = Rectangle(content.x, content.y, content.width, content.height - title_h - int(pad * 0.25))
 
         # Silueta (escenas 2–4) o rectángulo (escena 1)
-        poly = self._get_scene_polygon_points(scene_idx)  # robusto a tuplas/Vector2
-        if poly:
-            sil_fill = self.sil_fill[scene_idx] if scene_idx < len(self.sil_fill) else Color(180, 180, 180, 255)
-            sil_outline = self.sil_outline[scene_idx] if scene_idx < len(self.sil_outline) else Color(40, 40, 40, 255)
-            self._draw_shape_silhouette(shape_area, poly, sil_fill, sil_outline)
-        else:
-            draw_rectangle(int(shape_area.x), int(shape_area.y), int(shape_area.width), int(shape_area.height), self._tint(base_col, 0.85))
-            draw_rectangle_lines(int(shape_area.x), int(shape_area.y), int(shape_area.width), int(shape_area.height), Color(20, 20, 20, 160))
+        try:
+            self.scene_images = [None] * self.total_scenes
+            self.scene_images[1] = load_texture("Assets/plantilla_mundo_1.png")
+        except Exception:
+            self.scene_images = [None] * self.total_scenes
 
         # Badge con número (esquina sup. izq.)
         self._draw_badge_number(x + 12, y + 10, index_number)
