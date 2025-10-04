@@ -194,6 +194,26 @@ class Inventory:
                 break
         return removed
 
+    def count_item(self, item_id: str) -> int:
+        """
+        Cuenta cuántas unidades de un item específico hay en el inventario.
+        MÉTODO CRÍTICO para crafting_system y furnace_system.
+        """
+        total = 0
+        for slot in self.slots:
+            if slot.is_empty():
+                continue
+            if slot.item and slot.item.item_id == item_id:
+                total += slot.quantity
+        return total
+
+    def has_item(self, item_id: str, amount: int = 1) -> bool:
+        """
+        Verifica si el inventario tiene al menos 'amount' unidades de un item.
+        Útil para verificaciones rápidas.
+        """
+        return self.count_item(item_id) >= amount
+
     # === PERSISTENCIA ROBUSTA DEL INVENTARIO ===
     # Guarda por CASILLA (fila/col), así el hotbar y el grid vuelven igual.
     

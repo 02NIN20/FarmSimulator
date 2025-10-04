@@ -209,8 +209,8 @@ class Player:
                     run_flag = True
                     break
 
-        speed = self.walk_speed * 1.20 if (run_flag and self.stamina > 0) else self.walk_speed
-        if run_flag and self.stamina > 0:
+        speed = self.walk_speed * 1.50 if (run_flag and self.stamina > 0) else self.walk_speed
+        if run_flag and self.stamina > 0 and self._moving:
             self.stamina = max(0.0, self.stamina - 12.0 * dt)
         else:
             self.stamina = min(self.max_stamina, self.stamina + 6.0 * dt)

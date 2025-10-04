@@ -14,7 +14,9 @@ from map_system import MapSystem
 from zones_geometry import zone2_alaska_polygon, zone3_ppr_polygon, zone4_michigan_polygon
 from ground_spawns import SpawnManager
 from save_system import SaveManager
-from animal_spawns import AnimalManager   # === ANIMALES ===
+from animal_spawns import AnimalManager
+from crafting_system import CraftingSystem, CRAFTING_RECIPES  # NUEVO
+from furnace_system import FurnaceSystem, SMELTING_RECIPES, COMBUSTIBLES  # NUEVO
 
 # ----------------- Config -----------------
 
@@ -76,8 +78,8 @@ class Game:
         self.scene_w, self.scene_h = self.screen_w * 5, self.screen_h * 5
 
         init_window(self.screen_w, self.screen_h, "ASTRA - NASA Space Apps")
-        set_exit_key(0)  # Evitar cerrar con ESC
-        set_window_state(FLAG_WINDOW_RESIZABLE)  # Permitir redimensionar ventana
+        set_exit_key(0)
+        set_window_state(FLAG_WINDOW_RESIZABLE)
         set_target_fps(60)
 
         self.state = STATE_MAIN_MENU
@@ -92,7 +94,7 @@ class Game:
         self.target_scene: Optional[int] = None
         self.swapped = False
         self.post_load_state = STATE_PLAY
-        self._keep_player_pos_on_load = False  # respeta posición al cargar
+        self._keep_player_pos_on_load = False
 
         # escenas/jugador/sistemas
         self.scenes = self._create_scenes()
@@ -104,10 +106,12 @@ class Game:
 
         self.map_system = MapSystem(total_scenes=len(self.scenes))
         self.spawns = SpawnManager(self.inventory)
-
-        # === ANIMALES === gestor de fauna
         self.animals = AnimalManager()
-        self._pending_attack = False  # flag de ataque por tecla
+        self._pending_attack = False
+
+        # NUEVO: Sistemas de crafteo y fundición
+        self.crafting = CraftingSystem()
+        self.furnace = FurnaceSystem()
 
         # hotbar
         self.hotbar_size = min(9, self.inventory.cols)
@@ -126,20 +130,20 @@ class Game:
             "music_dragging": False, "sfx_dragging": False, "master_dragging": False,
             "brightness": 0.5, "brightness_dragging": False, "show_grid": True,
             "show_fps": False, "res_dropdown_open": False, "pause_tab": PAUSE_TAB_MAIN,
-            "fullscreen": False,  # Estado de pantalla completa
+            "fullscreen": False,
         }
         self._apply_grid_visibility_to_scenes()
 
         # reloj
         self.clock = GameClock(seconds_per_day=300.0)
 
-        # assets (incluye fuente personalizada)
+        # assets
         self.custom_font: Optional[Font] = None
         self.loading_texture: Optional[Texture2D] = None
         self.spring_texture: Optional[Texture2D] = None
         self._load_assets()
 
-        # Menú principal estacional
+        # Menú principal
         self.main_menu = {"t": 0.0, "selected": 0, "credits_open": False, "theme": "Primavera", "particles": []}
         self._init_main_menu_theme()
 
@@ -158,9 +162,14 @@ class Game:
         self.player_dead = False
         self._death_load_modal_open = False
 
-        # cabañas en 2,3,4
+        # cabañas
         self.cabins: dict[int, list[Rectangle]] = {}
         self._setup_cabins()
+
+        # NUEVO: Workbenches y Furnaces en el mundo
+        self.workbenches: dict[int, list[Rectangle]] = {}
+        self.furnaces_pos: dict[int, list[Rectangle]] = {}
+        self._setup_crafting_stations()
 
     # ---------- helpers ----------
     def _give_default_items(self) -> None:
@@ -176,6 +185,10 @@ class Game:
         self.inventory.add_item("seed_wheat", 6)
         self.inventory.add_item("water", 20)
         self.inventory.add_item("fertilizer", 8)
+        # Items adicionales para testing
+        self.inventory.add_item("wood_branch", 10)
+        self.inventory.add_item("leaves", 20)
+        self.inventory.add_item("log", 3)
 
     def _apply_grid_visibility_to_scenes(self) -> None:
         show = bool(self.ui_state.get("show_grid", True))
@@ -215,7 +228,6 @@ class Game:
         MICH_LAND    = Color( 92, 150, 110, 255)
 
         s1 = self._make_scene(1, LOCAL_LAND)
-
         s2 = Scene(2, Vector2(self.scene_w, self.scene_h), ALASKA_LAND,
                    Vector2(self.scene_w*0.5, self.scene_h*0.5),
                    grid_cell_size=48, grid_enabled=True,
@@ -231,13 +243,8 @@ class Game:
         return [s1, s2, s3, s4]
 
     def _load_assets(self) -> None:
-        # Cargar fuente personalizada
         try:
-            # Definir rango de caracteres a cargar (incluye acentos, eñes, etc.)
-            # 0 significa cargar todos los caracteres disponibles en la fuente
-            # self.custom_font = load_font_ex(b"assets/NotoSans-Regular.ttf", 32, None, 0)
-            # Establecer filtro de textura para mejor calidad
-            set_texture_filter(self.custom_font.texture, TEXTURE_FILTER_BILINEAR)
+            pass  # Cargar fuente personalizada si es necesario
         except Exception:
             self.custom_font = None
         
@@ -247,7 +254,6 @@ class Game:
             except Exception:
                 self.loading_texture = None
 
-        # --- Portada personalizada para Primavera ---
         try:
             self.spring_texture = load_texture("assets/apertura.png")
         except Exception:
@@ -301,19 +307,49 @@ class Game:
 
         # En juego: toggles
         if self.state == STATE_PLAY and not self.loading:
-            # Si está muerto, solo permitir ESC para cerrar modal de carga
             if self.player_dead:
                 if is_key_pressed(KEY_ESCAPE) and self._death_load_modal_open:
                     self._death_load_modal_open = False
                 return
             
+            # NUEVO: Tecla F para abrir Workbench
+            if is_key_pressed(KEY_F):
+                if self._player_near_workbench():
+                    if self.furnace.is_open:
+                        self.furnace.is_open = False
+                    if self.map_system.is_open:
+                        self.map_system.is_open = False
+                    if self.inventory.is_open:
+                        self.inventory.is_open = False
+                    self.crafting.toggle()
+            
+            # NUEVO: Tecla G para abrir Furnace
+            if is_key_pressed(KEY_G):
+                if self._player_near_furnace():
+                    if self.crafting.is_open:
+                        self.crafting.is_open = False
+                    if self.map_system.is_open:
+                        self.map_system.is_open = False
+                    if self.inventory.is_open:
+                        self.inventory.is_open = False
+                    self.furnace.toggle()
+            
             if is_key_pressed(KEY_I):
                 if self.map_system.is_open:
                     self.map_system.is_open = False
+                if self.crafting.is_open:
+                    self.crafting.is_open = False
+                if self.furnace.is_open:
+                    self.furnace.is_open = False
                 self.inventory.toggle()
+            
             if is_key_pressed(KEY_M):
                 if self.inventory.is_open:
                     self.inventory.is_open = False
+                if self.crafting.is_open:
+                    self.crafting.is_open = False
+                if self.furnace.is_open:
+                    self.furnace.is_open = False
                 self.map_system.toggle()
 
         # ESC
@@ -327,21 +363,27 @@ class Game:
                     self.inventory.is_open = False
                 elif self.map_system.is_open:
                     self.map_system.is_open = False
+                elif self.crafting.is_open:
+                    self.crafting.is_open = False
+                elif self.furnace.is_open:
+                    self.furnace.is_open = False
                 else:
                     self.ingame_menu_open = not self.ingame_menu_open
                     self.confirm_quit = False
                     self.confirm_menu = False
                     self.ui_state["pause_tab"] = PAUSE_TAB_MAIN
 
-        # Dormir/Guardar con E en cabaña
+        # Dormir/Guardar con E
         if (self.state == STATE_PLAY and not self.loading and
-            not self.ingame_menu_open and not self.inventory.is_open and not self.map_system.is_open):
+            not self.ingame_menu_open and not self.inventory.is_open and not self.map_system.is_open
+            and not self.crafting.is_open and not self.furnace.is_open):
             if is_key_pressed(KEY_E) and self._player_near_cabin():
                 self._sleep_and_save()
 
-        # === ANIMALES ===: ataque jugador (tecla ESPACIO)
+        # Ataque jugador
         if (self.state == STATE_PLAY and not self.loading and
-            not self.ingame_menu_open and not self.inventory.is_open and not self.map_system.is_open):
+            not self.ingame_menu_open and not self.inventory.is_open and not self.map_system.is_open
+            and not self.crafting.is_open and not self.furnace.is_open):
             self._pending_attack = is_key_pressed(KEY_SPACE)
 
         # Mapa: click viajar
@@ -356,8 +398,10 @@ class Game:
                         and next_idx != self.active_scene_index):
                     self._start_loading(next_idx, STATE_PLAY, keep_player_pos=False)
                     self.map_system.is_open = False
-                    self.inventory.is_open  = False
-                    self.ingame_menu_open   = False
+                    self.inventory.is_open = False
+                    self.crafting.is_open = False
+                    self.furnace.is_open = False
+                    self.ingame_menu_open = False
 
         # Hotbar: scroll y 1..9
         if self.state == STATE_PLAY and not self.loading:
@@ -378,7 +422,6 @@ class Game:
 
     # ---------- update ----------
     def _update(self, dt: float) -> None:
-        # Detectar cambio de tamaño de ventana
         if is_window_resized():
             self._handle_window_resize()
         
@@ -400,7 +443,6 @@ class Game:
                     except Exception:
                         poly = None
                     self.spawns.on_enter_scene(self.active_scene_index, self.scenes[self.active_scene_index].size, poly)
-                    # === ANIMALES ===: spawns al entrar
                     try:
                         self.animals.on_enter_scene(self.active_scene_index, self.scenes[self.active_scene_index].size, poly)
                     except Exception:
@@ -412,17 +454,18 @@ class Game:
 
         # Lógica en juego
         if (self.state == STATE_PLAY and not self.loading and
-            not self.ingame_menu_open and not self.inventory.is_open and not self.map_system.is_open):
+            not self.ingame_menu_open and not self.inventory.is_open and not self.map_system.is_open
+            and not self.crafting.is_open and not self.furnace.is_open):
             
-            # Detectar muerte del jugador
             if self.player.hp <= 0 and not self.player_dead:
                 self.player_dead = True
                 self.inventory.is_open = False
                 self.map_system.is_open = False
+                self.crafting.is_open = False
+                self.furnace.is_open = False
                 self.ingame_menu_open = False
-                return  # No procesar más lógica de juego
+                return
             
-            # Si el jugador está muerto, no procesar input de movimiento
             if self.player_dead:
                 return
             
@@ -451,7 +494,7 @@ class Game:
                         if collides_at(old_x, new_y):
                             test_y = old_y
 
-                # cabañas
+                # colisión con cabañas
                 if self._collides_cabin(test_x, test_y):
                     if not self._collides_cabin(test_x, old_y):
                         test_y = old_y
@@ -460,23 +503,40 @@ class Game:
                     else:
                         test_x, test_y = old_x, old_y
 
+                # NUEVO: colisión con workbenches
+                if self._collides_workbench(test_x, test_y):
+                    if not self._collides_workbench(test_x, old_y):
+                        test_y = old_y
+                    elif not self._collides_workbench(old_x, test_y):
+                        test_x = old_x
+                    else:
+                        test_x, test_y = old_x, old_y
+
+                # NUEVO: colisión con furnaces
+                if self._collides_furnace(test_x, test_y):
+                    if not self._collides_furnace(test_x, old_y):
+                        test_y = old_y
+                    elif not self._collides_furnace(old_x, test_y):
+                        test_x = old_x
+                    else:
+                        test_x, test_y = old_x, old_y
+
                 self.player.position.x, self.player.position.y = test_x, test_y
                 if collides_at(self.player.destination.x, self.player.destination.y):
                     self.player.destination = Vector2(self.player.position.x, self.player.position.y)
 
-            # === ANIMALES ===: actualizar IA y aplicar daño recibido
+            # Actualizar animales
             try:
                 damages = self.animals.update(self.active_scene_index, dt, self.player.position)
                 for dmg in damages:
                     if hasattr(self.player, "apply_damage"):
                         self.player.apply_damage(dmg)
                     else:
-                        # fallback mínimo si Player no tiene apply_damage
                         self.player.hp = max(0.0, getattr(self.player, "hp", 100.0) - float(dmg))
             except Exception:
                 pass
 
-            # === ANIMALES ===: ataque del jugador si pulsó ESPACIO
+            # Ataque del jugador
             if self._pending_attack:
                 did_attack = False
                 if hasattr(self.player, "try_attack"):
@@ -485,13 +545,11 @@ class Game:
                     except Exception:
                         did_attack = False
                 if not did_attack:
-                    # Fallback si Player no implementa try_attack: consume STA y aplica daño
                     cost = 16.0
                     if getattr(self.player, "stamina", 0.0) >= cost:
                         self.player.stamina = max(0.0, self.player.stamina - cost)
                         did_attack = True
                 if did_attack:
-                    # radio y daño por defecto si Player no los trae
                     radius = float(getattr(self.player, "attack_radius", 40.0))
                     damage = float(getattr(self.player, "attack_damage", 22.0))
                     try:
@@ -508,7 +566,11 @@ class Game:
             self.camera.target = Vector2(self.player.position.x, self.player.position.y)
             self._clamp_camera_to_scene()
 
-        # Actualizar el reloj solo si NO estamos en pausa ni muertos
+        # NUEVO: Actualizar horno siempre (incluso si el menú está cerrado)
+        if self.state == STATE_PLAY and not self.loading and not self.player_dead:
+            self.furnace.update(dt)
+
+        # Actualizar reloj
         if not self.ingame_menu_open and not self.player_dead:
             self.clock.update(dt)
 
@@ -550,15 +612,13 @@ class Game:
 
         end_drawing()
 
-    # ---------- Helper para dibujar texto con fuente personalizada ----------
     def _draw_text_custom(self, text: str, x: int, y: int, font_size: int, color: Color) -> None:
-        """Dibuja texto con fuente personalizada o por defecto si no está cargada."""
         if self.custom_font is not None:
             draw_text_ex(self.custom_font, text, Vector2(float(x), float(y)), float(font_size), 0, color)
         else:
             draw_text(text, x, y, font_size, color)
 
-    # ---------- Menú principal ----------
+    # ---------- Menú principal (sin cambios significativos) ----------
     def _draw_main_menu(self, ui_dims: dict, fsz) -> None:
         self._draw_menu_background()
         t = float(self.main_menu.get("t", 0.0))
@@ -603,7 +663,6 @@ class Game:
         elif label == "Salir":
             self.running = False
 
-    # ---- Tema estacional (fondos animados) ----
     def _init_main_menu_theme(self) -> None:
         import random
         themes = ["Primavera", "Verano", "Otoño", "Invierno"]
@@ -674,7 +733,6 @@ class Game:
     def _draw_menu_background(self) -> None:
         theme = self.main_menu.get("theme", "Primavera")
 
-        # --- Fondo según tema ---
         if theme == "Primavera":
             if self.spring_texture is not None:
                 tex = self.spring_texture
@@ -698,14 +756,12 @@ class Game:
             draw_rectangle_gradient_v(0, 0, self.screen_w, self.screen_h, Color(226,236,246,255), Color(200,218,238,255))
             grid_c = Color(60,90,120,25)
 
-        # Rejilla sutil superpuesta
         cell = max(48, int(self.screen_h * 0.08))
         for x in range(0, self.screen_w, cell):
             draw_line(x, 0, x, self.screen_h, grid_c)
         for y in range(0, self.screen_h, cell):
             draw_line(0, y, self.screen_w, y, grid_c)
 
-        # Partículas encima del fondo
         begin_blend_mode(BLEND_ALPHA)
         if theme in ("Primavera", "Invierno"):
             for p in self.main_menu["particles"]:
@@ -764,7 +820,7 @@ class Game:
         if clicked:
             self.main_menu["credits_open"] = False
 
-    # ---------- Config ----------
+    # ---------- Config (sin cambios) ----------
     def _draw_config(self, ui_dims: dict, fsz) -> None:
         self._draw_text_custom("CONFIGURACIÓN", ui_dims["left_margin"], int(self.screen_h * 0.12), fsz(32), BLACK)
         block_x = ui_dims["left_margin"]
@@ -799,7 +855,6 @@ class Game:
                     self.ui_state["res_dropdown_open"] = False
                     break
 
-        # Botón de pantalla completa
         fullscreen_y = drop_y + gap_y + drop_h - int(drop_h * 0.47)
         self._draw_text_custom("Pantalla completa", block_x, fullscreen_y - fsz(18), fsz(18), BLACK)
         fs_label = "Activada" if self.ui_state["fullscreen"] else "Desactivada"
@@ -832,9 +887,9 @@ class Game:
             self.camera.target = Vector2(self.player.position.x, self.player.position.y)
             self._clamp_camera_to_scene()
             self._setup_cabins()
+            self._setup_crafting_stations()
 
     def _handle_window_resize(self) -> None:
-        """Maneja el redimensionamiento de la ventana."""
         new_w = get_screen_width()
         new_h = get_screen_height()
         if new_w != self.screen_w or new_h != self.screen_h:
@@ -848,15 +903,14 @@ class Game:
             self.camera.target = Vector2(self.player.position.x, self.player.position.y)
             self._clamp_camera_to_scene()
             self._setup_cabins()
-            # Reinicializar partículas del menú con nuevo tamaño
+            self._setup_crafting_stations()
             if self.state == STATE_MAIN_MENU:
                 current_theme = self.main_menu.get("theme", "Primavera")
                 self.main_menu["theme"] = current_theme
                 self._init_main_menu_theme()
-                self.main_menu["theme"] = current_theme  # Mantener el tema actual
+                self.main_menu["theme"] = current_theme
 
     def _toggle_fullscreen(self) -> None:
-        """Alterna entre modo pantalla completa y ventana."""
         self.ui_state["fullscreen"] = not self.ui_state["fullscreen"]
         if self.ui_state["fullscreen"]:
             toggle_fullscreen()
@@ -868,7 +922,8 @@ class Game:
         begin_mode_2d(self.camera)
         self.scenes[self.active_scene_index].draw()
         self._draw_cabins_world()
-        # === ANIMALES === dibujar fauna en el mundo
+        self._draw_workbenches_world()  # NUEVO
+        self._draw_furnaces_world()     # NUEVO
         try:
             self.animals.draw(self.active_scene_index)
         except Exception:
@@ -882,14 +937,21 @@ class Game:
         self._draw_hud(fsz)
         self.inventory.draw(self.screen_w, self.screen_h)
         self.map_system.draw(self.screen_w, self.screen_h, self.active_scene_index)
+        
+        # NUEVO: Dibujar UI de crafteo y horno
+        if self.crafting.is_open:
+            self._draw_crafting_ui(fsz)
+        if self.furnace.is_open:
+            self._draw_furnace_ui(fsz)
 
         if self.ingame_menu_open:
             self._draw_pause_menu(ui_dims, fsz)
 
-        # Pantalla de muerte (se dibuja encima de todo)
         if self.player_dead:
             self._draw_death_screen(fsz)
 
+        self._draw_workbench_prompt(fsz)  # NUEVO
+        self._draw_furnace_prompt(fsz)    # NUEVO
         self._draw_sleep_prompt(fsz)
 
     def _color_scale(self, c: Color, factor: float) -> Color:
@@ -1080,7 +1142,6 @@ class Game:
         y = (self.screen_h - h)//2
         self._draw_panel(x, y, w, h, Color(245,245,245,255), Color(60,60,60,230), 0.08)
         self._draw_text_custom("PAUSA", x+16, y+14, fsz(28), BLACK)
-        # Tabs
         tab_w = int(w*0.22)
         tab_h = 38
         tab_gap = 8
@@ -1092,7 +1153,6 @@ class Game:
             if clicked:
                 self.ui_state["pause_tab"] = t_id
             ty += tab_h + tab_gap
-        # Content panel
         cx = x+16+tab_w+16
         cy = y+56
         cw = w - (cx - x) - 16
@@ -1169,6 +1229,8 @@ class Game:
     def _pause_content_game(self, x, y, w, h, fsz):
         self._draw_text_custom("Opciones de juego", x+16, y+16, fsz(18), BLACK)
         self._draw_text_custom("Cabañas = punto de guardado (E).", x+16, y+44, fsz(16), Color(40,40,40,255))
+        self._draw_text_custom("Mesa de trabajo = crafteo (F).", x+16, y+68, fsz(16), Color(40,40,40,255))
+        self._draw_text_custom("Horno = fundición/cocción (G).", x+16, y+92, fsz(16), Color(40,40,40,255))
 
     # ---------- Loading overlay ----------
     def _draw_loading_overlay(self, fsz) -> None:
@@ -1195,6 +1257,369 @@ class Game:
             draw_x = (self.screen_w - draw_w) // 2
             draw_y = (self.screen_h - draw_h) // 2
             draw_texture_ex(self.loading_texture, Vector2(draw_x, draw_y), 0.0, scale, Color(255,255,255,alpha))
+
+    # ========== NUEVO: SISTEMA DE CRAFTEO Y HORNO ==========
+    
+    def _setup_crafting_stations(self) -> None:
+        """Configura las posiciones de mesas de trabajo y hornos en el mundo"""
+        self.workbenches = {0: [], 1: [], 2: [], 3: [], 4: []}
+        self.furnaces_pos = {0: [], 1: [], 2: [], 3: [], 4: []}
+        
+        # Escena local (0): Mesa y horno cerca del centro
+        sc = self.scenes[0]
+        w, h = sc.size.x, sc.size.y
+        # Mesa de trabajo
+        self.workbenches[1] = [Rectangle(w*0.45, h*0.45, 80, 60)]
+        # Horno
+        self.furnaces_pos[1] = [Rectangle(w*0.55, h*0.45, 70, 70)]
+        
+        # Otras escenas también tienen estaciones
+        for idx in (2, 3, 4):
+            sc = self.scenes[idx-1]
+            w, h = sc.size.x, sc.size.y
+            if idx == 2:  # Alaska
+                self.workbenches[idx] = [Rectangle(w*0.35, h*0.50, 80, 60)]
+                self.furnaces_pos[idx] = [Rectangle(w*0.65, h*0.50, 70, 70)]
+            elif idx == 3:  # PPR
+                self.workbenches[idx] = [Rectangle(w*0.55, h*0.40, 80, 60)]
+                self.furnaces_pos[idx] = [Rectangle(w*0.45, h*0.60, 70, 70)]
+            else:  # Michigan
+                self.workbenches[idx] = [Rectangle(w*0.50, h*0.72, 80, 60)]
+                self.furnaces_pos[idx] = [Rectangle(w*0.50, h*0.28, 70, 70)]
+    
+    def _draw_workbenches_world(self) -> None:
+        """Dibuja las mesas de trabajo en el mundo"""
+        idx = self.active_scene_index + 1
+        for r in self.workbenches.get(idx, []):
+            # Base de la mesa
+            draw_rectangle(int(r.x), int(r.y), int(r.width), int(r.height), Color(160, 120, 70, 255))
+            draw_rectangle_lines(int(r.x), int(r.y), int(r.width), int(r.height), Color(90, 60, 30, 255))
+            # Herramientas en la mesa
+            draw_circle(int(r.x + r.width*0.3), int(r.y + r.height*0.4), 6, Color(200, 200, 200, 255))
+            draw_rectangle(int(r.x + r.width*0.6), int(r.y + r.height*0.5), 15, 8, Color(180, 140, 90, 255))
+    
+    def _draw_furnaces_world(self) -> None:
+        """Dibuja los hornos en el mundo"""
+        idx = self.active_scene_index + 1
+        for r in self.furnaces_pos.get(idx, []):
+            # Cuerpo del horno
+            draw_rectangle(int(r.x), int(r.y), int(r.width), int(r.height), Color(100, 100, 110, 255))
+            draw_rectangle_lines(int(r.x), int(r.y), int(r.width), int(r.height), Color(50, 50, 60, 255))
+            # Puerta
+            door_w = int(r.width * 0.5)
+            door_h = int(r.height * 0.4)
+            door_x = int(r.x + (r.width - door_w) * 0.5)
+            door_y = int(r.y + r.height - door_h - 5)
+            draw_rectangle(door_x, door_y, door_w, door_h, Color(40, 40, 45, 255))
+            draw_rectangle_lines(door_x, door_y, door_w, door_h, BLACK)
+            # Fuego si está activo
+            if self.furnace.is_processing and self.furnace.fuel_time_remaining > 0:
+                fire_x = int(r.x + r.width * 0.5)
+                fire_y = int(r.y + r.height * 0.6)
+                draw_circle(fire_x, fire_y, 8, Color(255, 150, 50, 200))
+                draw_circle(fire_x, fire_y - 3, 5, Color(255, 200, 100, 180))
+    
+    def _player_near_workbench(self) -> bool:
+        """Verifica si el jugador está cerca de una mesa de trabajo"""
+        idx = self.active_scene_index + 1
+        pr = self._player_rect()
+        for r in self.workbenches.get(idx, []):
+            cx, cy = (r.x + r.width/2), (r.y + r.height/2)
+            dx = pr.x + pr.width/2 - cx
+            dy = pr.y + pr.height/2 - cy
+            if (dx*dx + dy*dy) ** 0.5 <= max(r.width, r.height)*0.75:
+                return True
+        return False
+    
+    def _player_near_furnace(self) -> bool:
+        """Verifica si el jugador está cerca de un horno"""
+        idx = self.active_scene_index + 1
+        pr = self._player_rect()
+        for r in self.furnaces_pos.get(idx, []):
+            cx, cy = (r.x + r.width/2), (r.y + r.height/2)
+            dx = pr.x + pr.width/2 - cx
+            dy = pr.y + pr.height/2 - cy
+            if (dx*dx + dy*dy) ** 0.5 <= max(r.width, r.height)*0.75:
+                return True
+        return False
+    
+    def _collides_workbench(self, test_x: float, test_y: float) -> bool:
+        """Verifica colisión con mesas de trabajo"""
+        idx = self.active_scene_index + 1
+        s = float(self.player.size)
+        rect = Rectangle(test_x - s/2, test_y - s/2, s, s)
+        for r in self.workbenches.get(idx, []):
+            if check_collision_recs(rect, r):
+                return True
+        return False
+    
+    def _collides_furnace(self, test_x: float, test_y: float) -> bool:
+        """Verifica colisión con hornos"""
+        idx = self.active_scene_index + 1
+        s = float(self.player.size)
+        rect = Rectangle(test_x - s/2, test_y - s/2, s, s)
+        for r in self.furnaces_pos.get(idx, []):
+            if check_collision_recs(rect, r):
+                return True
+        return False
+    
+    def _draw_workbench_prompt(self, fsz) -> None:
+        """Muestra prompt para usar la mesa de trabajo"""
+        if self._player_near_workbench():
+            txt = "Mesa de Trabajo [F]"
+            fs = fsz(18)
+            x = int(self.screen_w*0.5 - measure_text(txt, fs)/2)
+            y = int(self.screen_h*0.78)
+            self._draw_panel(x-10, y-6, measure_text(txt, fs)+20, fs+14, Color(20,20,20,150), Color(0,0,0,200), 0.35)
+            self._draw_text_shadow(txt, x, y, fs, Color(240,240,240,255))
+    
+    def _draw_furnace_prompt(self, fsz) -> None:
+        """Muestra prompt para usar el horno"""
+        if self._player_near_furnace():
+            txt = "Horno [G]"
+            fs = fsz(18)
+            x = int(self.screen_w*0.5 - measure_text(txt, fs)/2)
+            y = int(self.screen_h*0.84)
+            self._draw_panel(x-10, y-6, measure_text(txt, fs)+20, fs+14, Color(20,20,20,150), Color(0,0,0,200), 0.35)
+            self._draw_text_shadow(txt, x, y, fs, Color(240,240,240,255))
+    
+    def _draw_crafting_ui(self, fsz) -> None:
+        """Dibuja la interfaz de crafteo"""
+        w = int(self.screen_w * 0.65)
+        h = int(self.screen_h * 0.75)
+        x = (self.screen_w - w) // 2
+        y = (self.screen_h - h) // 2
+        
+        # Panel principal
+        self._draw_panel(x, y, w, h, Color(245, 245, 245, 255), Color(80, 80, 80, 230), 0.06)
+        self._draw_text_custom("MESA DE TRABAJO", x + 20, y + 16, fsz(28), BLACK)
+        
+        # Instrucciones
+        inst = "Click en una receta para craftear"
+        self._draw_text_custom(inst, x + 20, y + 52, fsz(16), Color(60, 60, 60, 255))
+        
+        # Lista de recetas
+        list_y = y + 85
+        list_h = h - 110
+        row_h = 60
+        gap = 8
+        
+        recipes = list(CRAFTING_RECIPES.keys())
+        for i, recipe_id in enumerate(recipes):
+            row_y = list_y + i * (row_h + gap)
+            
+            # Scroll simple
+            if row_y + row_h < list_y or row_y > list_y + list_h:
+                continue
+            
+            can_craft = self.crafting.can_craft(recipe_id, self.inventory)
+            info = self.crafting.get_recipe_info(recipe_id)
+            
+            if not info:
+                continue
+            
+            # Background de la receta
+            bg_color = Color(230, 250, 230, 255) if can_craft else Color(250, 235, 235, 255)
+            border_color = Color(100, 150, 100, 220) if can_craft else Color(150, 100, 100, 220)
+            
+            row_x = x + 20
+            row_w = w - 40
+            self._draw_panel(row_x, row_y, row_w, row_h, bg_color, border_color, 0.05)
+            
+            # Nombre del resultado
+            result_name = recipe_id.replace("_", " ").title()
+            self._draw_text_custom(f"→ {result_name} x{info['result_qty']}", 
+                                  row_x + 12, row_y + 10, fsz(20), BLACK)
+            
+            # Requisitos
+            req_text = "Requiere: "
+            for req_id, req_qty in info['requirements']:
+                req_name = req_id.replace("_", " ").title()
+                available = self.inventory.count_item(req_id)
+                color = Color(0, 120, 0, 255) if available >= req_qty else Color(180, 0, 0, 255)
+                req_text += f"{req_name} x{req_qty} ({available}) "
+            
+            self._draw_text_custom(req_text, row_x + 12, row_y + 35, fsz(14), Color(60, 60, 60, 255))
+            
+            # Botón craftear
+            if can_craft:
+                btn_w = 100
+                btn_h = 32
+                btn_x = row_x + row_w - btn_w - 10
+                btn_y = row_y + (row_h - btn_h) // 2
+                
+                if ui_helpers.draw_button_left(btn_x, btn_y, btn_w, btn_h, "Craftear", font_size=fsz(16)):
+                    self.crafting.craft_item(recipe_id, self.inventory)
+        
+        # Botón cerrar
+        close_btn_w = 120
+        close_btn_h = 38
+        if ui_helpers.draw_button_left(x + w - close_btn_w - 20, y + h - close_btn_h - 16, 
+                                       close_btn_w, close_btn_h, "Cerrar [ESC]", font_size=fsz(18)):
+            self.crafting.is_open = False
+    
+    def _draw_furnace_ui(self, fsz) -> None:
+        """Dibuja la interfaz del horno"""
+        w = int(self.screen_w * 0.60)
+        h = int(self.screen_h * 0.70)
+        x = (self.screen_w - w) // 2
+        y = (self.screen_h - h) // 2
+        
+        # Panel principal
+        self._draw_panel(x, y, w, h, Color(245, 245, 245, 255), Color(80, 80, 80, 230), 0.06)
+        self._draw_text_custom("HORNO", x + 20, y + 16, fsz(28), BLACK)
+        
+        # Estado del horno
+        status = "Procesando..." if self.furnace.is_processing else "Inactivo"
+        status_color = Color(220, 120, 0, 255) if self.furnace.is_processing else Color(100, 100, 100, 255)
+        self._draw_text_custom(f"Estado: {status}", x + 20, y + 52, fsz(18), status_color)
+        
+        # Slots del horno
+        slot_y = y + 90
+        slot_size = 80
+        slot_gap = 20
+        
+        # Slot de entrada (item a procesar)
+        input_x = x + 30
+        self._draw_panel(input_x, slot_y, slot_size, slot_size, Color(255, 250, 240, 255), 
+                        Color(120, 120, 120, 220), 0.08)
+        self._draw_text_custom("Entrada", input_x, slot_y - 22, fsz(16), BLACK)
+        
+        if self.furnace.input_item:
+            item_name = self.furnace.input_item.replace("_", " ").title()
+            self._draw_text_custom(item_name[:12], input_x + 5, slot_y + 10, fsz(14), BLACK)
+            self._draw_text_custom(f"x{self.furnace.input_qty}", input_x + 5, slot_y + 55, fsz(18), BLACK)
+        else:
+            self._draw_text_custom("Vacío", input_x + 15, slot_y + 30, fsz(14), Color(150, 150, 150, 255))
+        
+        # Slot de combustible
+        fuel_x = input_x + slot_size + slot_gap
+        self._draw_panel(fuel_x, slot_y, slot_size, slot_size, Color(255, 245, 235, 255), 
+                        Color(120, 120, 120, 220), 0.08)
+        self._draw_text_custom("Combustible", fuel_x, slot_y - 22, fsz(16), BLACK)
+        
+        if self.furnace.fuel_item:
+            item_name = self.furnace.fuel_item.replace("_", " ").title()
+            self._draw_text_custom(item_name[:12], fuel_x + 5, slot_y + 10, fsz(14), BLACK)
+            self._draw_text_custom(f"x{self.furnace.fuel_qty}", fuel_x + 5, slot_y + 55, fsz(18), BLACK)
+        else:
+            self._draw_text_custom("Vacío", fuel_x + 15, slot_y + 30, fsz(14), Color(150, 150, 150, 255))
+        
+        # Slot de salida
+        output_x = fuel_x + slot_size + slot_gap
+        self._draw_panel(output_x, slot_y, slot_size, slot_size, Color(240, 255, 240, 255), 
+                        Color(120, 120, 120, 220), 0.08)
+        self._draw_text_custom("Salida", output_x, slot_y - 22, fsz(16), BLACK)
+        
+        if self.furnace.output_item:
+            item_name = self.furnace.output_item.replace("_", " ").title()
+            self._draw_text_custom(item_name[:12], output_x + 5, slot_y + 10, fsz(14), BLACK)
+            self._draw_text_custom(f"x{self.furnace.output_qty}", output_x + 5, slot_y + 55, fsz(18), BLACK)
+        else:
+            self._draw_text_custom("Vacío", output_x + 15, slot_y + 30, fsz(14), Color(150, 150, 150, 255))
+        
+        # Barras de progreso
+        bar_y = slot_y + slot_size + 30
+        bar_w = w - 60
+        bar_h = 24
+        
+        # Barra de procesamiento
+        if self.furnace.is_processing:
+            progress = self.furnace.get_progress()
+            self._draw_text_custom("Progreso:", x + 30, bar_y - 22, fsz(16), BLACK)
+            self._draw_panel(x + 30, bar_y, bar_w, bar_h, Color(230, 230, 230, 255), 
+                           Color(100, 100, 100, 220), 0.15)
+            if progress > 0:
+                inner_w = int((bar_w - 6) * progress)
+                self._draw_panel(x + 33, bar_y + 3, inner_w, bar_h - 6, 
+                               Color(255, 180, 80, 255), Color(220, 140, 40, 255), 0.15)
+            percent_text = f"{int(progress * 100)}%"
+            tx = x + 30 + (bar_w - measure_text(percent_text, fsz(14))) // 2
+            self._draw_text_custom(percent_text, tx, bar_y + 5, fsz(14), BLACK)
+        
+        # Barra de combustible
+        fuel_bar_y = bar_y + bar_h + 35
+        fuel_progress = self.furnace.get_fuel_progress()
+        self._draw_text_custom("Combustible:", x + 30, fuel_bar_y - 22, fsz(16), BLACK)
+        self._draw_panel(x + 30, fuel_bar_y, bar_w, bar_h, Color(230, 230, 230, 255), 
+                       Color(100, 100, 100, 220), 0.15)
+        if fuel_progress > 0:
+            inner_w = int((bar_w - 6) * fuel_progress)
+            self._draw_panel(x + 33, fuel_bar_y + 3, inner_w, bar_h - 6, 
+                           Color(255, 120, 50, 255), Color(220, 80, 20, 255), 0.15)
+        
+        # Lista de items disponibles
+        list_y = fuel_bar_y + bar_h + 50
+        self._draw_text_custom("Items del inventario (click para agregar):", x + 30, list_y - 22, fsz(16), BLACK)
+        
+        # Botones para agregar items
+        btn_y = list_y
+        btn_w = 140
+        btn_h = 32
+        btn_gap = 8
+        col_count = 0
+        
+        # Mostrar items del inventario que se pueden usar
+        shown_items = set()
+        for row in range(self.inventory.rows):
+            for col in range(self.inventory.cols):
+                try:
+                    slot = self.inventory.get_slot(row, col)
+                    info = self._slot_item_info(slot)
+                    if info:
+                        item_id, qty = info
+                        if item_id in shown_items:
+                            continue
+                        shown_items.add(item_id)
+                        
+                        is_smeltable = item_id in SMELTING_RECIPES
+                        is_fuel = item_id in COMBUSTIBLES
+                        
+                        if not (is_smeltable or is_fuel):
+                            continue
+                        
+                        btn_x = x + 30 + (col_count % 3) * (btn_w + btn_gap)
+                        current_btn_y = btn_y + (col_count // 3) * (btn_h + btn_gap)
+                        
+                        if current_btn_y + btn_h > y + h - 70:
+                            break
+                        
+                        item_name = item_id.replace("_", " ").title()[:15]
+                        label = f"{item_name} ({qty})"
+                        
+                        if ui_helpers.draw_button_left(btn_x, current_btn_y, btn_w, btn_h, 
+                                                       label, font_size=fsz(13)):
+                            if is_smeltable and not is_fuel:
+                                self.furnace.add_input(item_id, self.inventory)
+                            elif is_fuel and not is_smeltable:
+                                self.furnace.add_fuel(item_id, self.inventory)
+                            else:
+                                # Item puede ser ambos, preguntar o alternar
+                                if self.furnace.input_item is None or self.furnace.input_item == item_id:
+                                    self.furnace.add_input(item_id, self.inventory)
+                                else:
+                                    self.furnace.add_fuel(item_id, self.inventory)
+                        
+                        col_count += 1
+                except Exception:
+                    continue
+        
+        # Botón recoger output
+        if self.furnace.output_item and self.furnace.output_qty > 0:
+            collect_btn_w = 160
+            collect_btn_h = 40
+            collect_x = x + w - collect_btn_w - 30
+            collect_y = y + h - collect_btn_h - 80
+            if ui_helpers.draw_button_left(collect_x, collect_y, collect_btn_w, collect_btn_h, 
+                                           "Recoger Output", font_size=fsz(18)):
+                self.furnace.remove_output(self.inventory)
+        
+        # Botón cerrar
+        close_btn_w = 120
+        close_btn_h = 38
+        if ui_helpers.draw_button_left(x + w - close_btn_w - 20, y + h - close_btn_h - 16, 
+                                       close_btn_w, close_btn_h, "Cerrar [ESC]", font_size=fsz(18)):
+            self.furnace.is_open = False
 
     # ---------- Cabañas ----------
     def _setup_cabins(self) -> None:
@@ -1262,7 +1687,6 @@ class Game:
             self._draw_text_shadow(txt, x, y, fs, Color(240,240,240,255))
 
     def _draw_death_screen(self, fsz) -> None:
-        """Pantalla de muerte con opciones de menú principal o cargar partida."""
         draw_rectangle(0, 0, self.screen_w, self.screen_h, Color(0, 0, 0, 180))
         
         w = int(self.screen_w * 0.50)
@@ -1303,7 +1727,6 @@ class Game:
             self._draw_death_load_modal(fsz)
 
     def _draw_death_load_modal(self, fsz) -> None:
-        """Modal para cargar una partida desde la pantalla de muerte."""
         draw_rectangle(0, 0, self.screen_w, self.screen_h, Color(0, 0, 0, 100))
         
         mw = int(self.screen_w * 0.70)
@@ -1382,7 +1805,6 @@ class Game:
                     self._start_loading(self.active_scene_index, STATE_PLAY, keep_player_pos=True)
 
     def _sleep_and_save(self) -> None:
-        """Descansar y guardar: avanza 8 horas y persiste inventario/posición/tiempo."""
         spd = self.clock.seconds_per_day
         self.clock.elapsed += (8.0 / 24.0) * spd
 
@@ -1398,7 +1820,6 @@ class Game:
 
     # ---------- Guardar/cargar ----------
     def _build_save_data(self) -> dict:
-        """Construye el diccionario de datos para guardar la partida."""
         return {
             "id": self.current_save_id or "",
             "name": self.current_save_name or "Partida",
@@ -1410,7 +1831,6 @@ class Game:
         }
 
     def _apply_save_data(self, data: dict) -> None:
-        """Carga los datos guardados y restaura el estado del juego."""
         idx = max(1, int(data.get("scene_index", 1)))
         self.active_scene_index = min(len(self.scenes)-1, idx-1)
         p = data.get("player", {"x": self._scene_center(self.scenes[self.active_scene_index]).x,
