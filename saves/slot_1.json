@@ -1,13 +1,48 @@
 {
   "id": "slot_1",
-  "name": "sdasdas",
+  "name": "hola",
   "scene_index": 2,
   "player": {
-    "x": 3072.253662109375,
-    "y": 2159.660400390625
+    "x": 1536.164794921875,
+    "y": 1137.479248046875
   },
-  "clock_elapsed": 1968.2466177176684,
+  "clock_elapsed": 297.45162840746343,
   "seconds_per_day": 300.0,
-  "inventory": [],
-  "updated": "2025-10-04 10:55:24"
+  "inventory": {
+    "rows": 4,
+    "cols": 10,
+    "items": [
+      {
+        "r": 0,
+        "c": 0,
+        "id": "seed_corn",
+        "qty": 12
+      },
+      {
+        "r": 0,
+        "c": 1,
+        "id": "seed_wheat",
+        "qty": 6
+      },
+      {
+        "r": 0,
+        "c": 2,
+        "id": "water",
+        "qty": 20
+      },
+      {
+        "r": 0,
+        "c": 3,
+        "id": "fertilizer",
+        "qty": 8
+      },
+      {
+        "r": 0,
+        "c": 4,
+        "id": "leaves",
+        "qty": 1
+      }
+    ]
+  },
+  "updated": "2025-10-04 12:24:29"
 }

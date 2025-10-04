@@ -1399,52 +1399,8 @@ class Game:
             self.current_save_id = self.save_mgr.save(self.current_save_id, data)
 
     # ---------- Guardar/cargar ----------
-    def _serialize_inventory(self) -> List[dict]:
-        """Convierte TODO el inventario a una lista [{id, qty}], soportando get_slot(row,col)."""
-        items: List[dict] = []
-        try:
-            rows = int(getattr(self.inventory, "rows", 0)) or 0
-            cols = int(getattr(self.inventory, "cols", 0)) or 0
-            if rows > 0 and cols > 0 and hasattr(self.inventory, "get_slot") and callable(self.inventory.get_slot):
-                for r in range(rows):
-                    for c in range(cols):
-                        try:
-                            slot = self.inventory.get_slot(r, c)
-                            info = self._slot_item_info(slot)
-                            if info:
-                                items.append({"id": info[0], "qty": int(info[1])})
-                        except Exception:
-                            pass
-            else:
-                # Fallback: recorrer lista lineal de slots
-                for slot in getattr(self.inventory, "slots", []):
-                    info = self._slot_item_info(slot)
-                    if info:
-                        items.append({"id": info[0], "qty": int(info[1])})
-        except Exception:
-            pass
-        return items
-
-    def _load_inventory_from_dump(self, dump: List[dict]) -> None:
-        # Limpia y repuebla usando el API público
-        try:
-            if hasattr(self.inventory, "clear_all"):
-                self.inventory.clear_all()
-            else:
-                for s in getattr(self.inventory, "slots", []):
-                    try:
-                        s.clear()
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-        for it in dump or []:
-            try:
-                self.inventory.add_item(it["id"], int(it.get("qty", 1)))
-            except Exception:
-                pass
-
     def _build_save_data(self) -> dict:
+        """Construye el diccionario de datos para guardar la partida."""
         return {
             "id": self.current_save_id or "",
             "name": self.current_save_name or "Partida",
@@ -1452,10 +1408,11 @@ class Game:
             "player": {"x": float(self.player.position.x), "y": float(self.player.position.y)},
             "clock_elapsed": float(self.clock.elapsed),
             "seconds_per_day": float(self.clock.seconds_per_day),
-            "inventory": self._serialize_inventory(),
+            "inventory": self.inventory.export_state(),  # Usa el método correcto que preserva posiciones
         }
 
     def _apply_save_data(self, data: dict) -> None:
+        """Carga los datos guardados y restaura el estado del juego."""
         idx = max(1, int(data.get("scene_index", 1)))
         self.active_scene_index = min(len(self.scenes)-1, idx-1)
         p = data.get("player", {"x": self._scene_center(self.scenes[self.active_scene_index]).x,
@@ -1464,7 +1421,12 @@ class Game:
         self.player.destination = Vector2(self.player.position.x, self.player.position.y)
         self.clock.elapsed = float(data.get("clock_elapsed", 0.0))
         self.clock.seconds_per_day = float(data.get("seconds_per_day", self.clock.seconds_per_day))
-        self._load_inventory_from_dump(data.get("inventory", []))
+        
+        # Restaurar inventario usando el método correcto que preserva posiciones
+        inventory_data = data.get("inventory", {})
+        if inventory_data:
+            self.inventory.import_state(inventory_data)
+        
         self.camera.target = Vector2(self.player.position.x, self.player.position.y)
         self._clamp_camera_to_scene()
         # Resetear estado de muerte al cargar partida
