@@ -153,6 +153,10 @@ class Game:
         self._newgame_modal_open = False
         self._newgame_name = ""
 
+        # Sistema de muerte
+        self.player_dead = False
+        self._death_load_modal_open = False
+
         # cabañas en 2,3,4
         self.cabins: dict[int, list[Rectangle]] = {}
         self._setup_cabins()
@@ -284,6 +288,12 @@ class Game:
 
         # En juego: toggles
         if self.state == STATE_PLAY and not self.loading:
+            # Si está muerto, solo permitir ESC para cerrar modal de carga
+            if self.player_dead:
+                if is_key_pressed(KEY_ESCAPE) and self._death_load_modal_open:
+                    self._death_load_modal_open = False
+                return
+            
             if is_key_pressed(KEY_I):
                 if self.map_system.is_open:
                     self.map_system.is_open = False
@@ -390,6 +400,19 @@ class Game:
         # Lógica en juego
         if (self.state == STATE_PLAY and not self.loading and
             not self.ingame_menu_open and not self.inventory.is_open and not self.map_system.is_open):
+            
+            # Detectar muerte del jugador
+            if self.player.hp <= 0 and not self.player_dead:
+                self.player_dead = True
+                self.inventory.is_open = False
+                self.map_system.is_open = False
+                self.ingame_menu_open = False
+                return  # No procesar más lógica de juego
+            
+            # Si el jugador está muerto, no procesar input de movimiento
+            if self.player_dead:
+                return
+            
             mouse_world = get_screen_to_world_2d(get_mouse_position(), self.camera)
             p_input = input_handler.get_player_input(self.player.position, self.player.destination, mouse_world)
             old_x, old_y = self.player.position.x, self.player.position.y
@@ -472,9 +495,9 @@ class Game:
             self.camera.target = Vector2(self.player.position.x, self.player.position.y)
             self._clamp_camera_to_scene()
 
-        # Actualizar el reloj solo si NO estamos en pausa
-        if not self.ingame_menu_open:
-            self.clock.update(dt)  # ← Ahora se detiene en pausa
+        # Actualizar el reloj solo si NO estamos en pausa ni muertos
+        if not self.ingame_menu_open and not self.player_dead:
+            self.clock.update(dt)  # ← Ahora se detiene en pausa y muerte
 
     # ---------- transiciones ----------
     def _start_loading(self, target_scene_index: int, next_state: str, keep_player_pos: bool = False) -> None:
@@ -843,6 +866,10 @@ class Game:
         if self.ingame_menu_open:
             self._draw_pause_menu(ui_dims, fsz)
 
+        # Pantalla de muerte (se dibuja encima de todo)
+        if self.player_dead:
+            self._draw_death_screen(fsz)
+
         self._draw_sleep_prompt(fsz)
 
     def _color_scale(self, c: Color, factor: float) -> Color:
@@ -1092,6 +1119,7 @@ class Game:
                     self.state = STATE_MAIN_MENU
                     self.ingame_menu_open = False
                     self.confirm_menu = False
+                    self.player_dead = False  # Resetear estado de muerte al volver al menú
                     self._init_main_menu_theme()  # ← CAMBIO: Aleatoriza al volver al menú
                 else:
                     self.running = False
@@ -1213,6 +1241,145 @@ class Game:
             self._draw_panel(x-10, y-6, measure_text(txt, fs)+20, fs+14, Color(20,20,20,150), Color(0,0,0,200), 0.35)
             self._draw_text_shadow(txt, x, y, fs, Color(240,240,240,255))
 
+    def _draw_death_screen(self, fsz) -> None:
+        """Pantalla de muerte con opciones de menú principal o cargar partida."""
+        # Fondo oscuro semi-transparente
+        draw_rectangle(0, 0, self.screen_w, self.screen_h, Color(0, 0, 0, 180))
+        
+        # Panel central
+        w = int(self.screen_w * 0.50)
+        h = int(self.screen_h * 0.45)
+        x = (self.screen_w - w) // 2
+        y = (self.screen_h - h) // 2
+        
+        self._draw_panel(x, y, w, h, Color(250, 250, 250, 255), Color(100, 30, 30, 230), radius=0.08)
+        
+        # Título "HAS MUERTO"
+        title = "HAS MUERTO"
+        fs_title = fsz(42)
+        title_w = measure_text(title, fs_title)
+        draw_text(title, x + (w - title_w) // 2, y + 30, fs_title, Color(180, 30, 30, 255))
+        
+        # Mensaje
+        msg = "Tu aventura ha llegado a su fin..."
+        fs_msg = fsz(20)
+        msg_w = measure_text(msg, fs_msg)
+        draw_text(msg, x + (w - msg_w) // 2, y + 90, fs_msg, Color(60, 60, 60, 255))
+        
+        # Botones
+        btn_w = int(w * 0.70)
+        btn_h = 50
+        btn_x = x + (w - btn_w) // 2
+        btn_y = y + 160
+        gap = 20
+        
+        # Botón Menú Principal
+        if ui_helpers.draw_button_left(btn_x, btn_y, btn_w, btn_h, "Menú Principal", font_size=fsz(24)):
+            self.player_dead = False
+            self.player.hp = self.player.max_hp
+            self.player.stamina = self.player.max_stamina
+            self.state = STATE_MAIN_MENU
+            self.ingame_menu_open = False
+            self._init_main_menu_theme()
+        
+        # Botón Cargar Partida
+        if ui_helpers.draw_button_left(btn_x, btn_y + btn_h + gap, btn_w, btn_h, "Cargar Partida", font_size=fsz(24)):
+            self._death_load_modal_open = True
+        
+        # Modal de carga de partidas
+        if self._death_load_modal_open:
+            self._draw_death_load_modal(fsz)
+
+    def _draw_death_load_modal(self, fsz) -> None:
+        """Modal para cargar una partida desde la pantalla de muerte."""
+        # Fondo adicional
+        draw_rectangle(0, 0, self.screen_w, self.screen_h, Color(0, 0, 0, 100))
+        
+        # Panel del modal
+        mw = int(self.screen_w * 0.70)
+        mh = int(self.screen_h * 0.75)
+        mx = (self.screen_w - mw) // 2
+        my = (self.screen_h - mh) // 2
+        
+        self._draw_panel(mx, my, mw, mh, Color(245, 245, 245, 255), Color(80, 80, 80, 230), radius=0.06)
+        
+        # Título
+        title = "SELECCIONA UNA PARTIDA"
+        fs_title = fsz(28)
+        draw_text(title, mx + 20, my + 16, fs_title, BLACK)
+        
+        # Botón cerrar
+        close_btn_w = 120
+        close_btn_h = 38
+        if ui_helpers.draw_button_left(mx + mw - close_btn_w - 20, my + 12, close_btn_w, close_btn_h, "Cerrar", font_size=fsz(18)):
+            self._death_load_modal_open = False
+            return
+        
+        # Lista de partidas
+        slots = self.save_mgr.list_slots()
+        
+        if not slots:
+            msg = "No hay partidas guardadas"
+            fs_msg = fsz(20)
+            draw_text(msg, mx + (mw - measure_text(msg, fs_msg)) // 2, my + mh // 2, fs_msg, Color(100, 100, 100, 255))
+            return
+        
+        # Área de scroll para partidas
+        list_y = my + 70
+        list_h = mh - 90
+        row_h = 80
+        gap = 10
+        
+        def season_strip(season: str) -> Color:
+            return {"Primavera": Color(120, 180, 120, 255),
+                    "Verano":    Color(110, 160, 220, 255),
+                    "Otoño":     Color(200, 140,  70, 255),
+                    "Invierno":  Color(160, 180, 210, 255)}.get(season, Color(150,150,150,255))
+        
+        for i, s in enumerate(slots):
+            row_y = list_y + i * (row_h + gap)
+            
+            # No dibujar si está fuera del área visible
+            if row_y + row_h < list_y or row_y > list_y + list_h:
+                continue
+            
+            slot_x = mx + 20
+            slot_w = mw - 40
+            
+            # Tarjeta de partida
+            self._draw_panel(slot_x, row_y, slot_w, row_h, Color(252, 252, 252, 255), Color(120, 120, 120, 220), 0.06)
+            
+            # Banda de estación
+            elapsed = float(s["clock_elapsed"])
+            spd = float(s["seconds_per_day"])
+            day = self._day_from_elapsed(elapsed, spd)
+            season_names = GameClock.SEASONS
+            season = season_names[((day-1)//30) % len(season_names)]
+            draw_rectangle(slot_x, row_y, 8, row_h, season_strip(season))
+            
+            # Información de la partida
+            name = s["name"]
+            hhmm = self._fmt_time_from_elapsed(elapsed, spd)
+            info = f"{name}   |   Escena {s['scene_index']}   |   Día {day}  {hhmm}"
+            draw_text(info, slot_x + 18, row_y + 12, fsz(20), BLACK)
+            draw_text(f"Modificado: {s['updated']}", slot_x + 18, row_y + 40, fsz(16), Color(60, 60, 60, 255))
+            
+            # Botón Cargar
+            btn_w = 140
+            btn_h = 36
+            btn_x = slot_x + slot_w - btn_w - 12
+            btn_y = row_y + (row_h - btn_h) // 2
+            
+            if ui_helpers.draw_button_left(btn_x, btn_y, btn_w, btn_h, "Cargar", font_size=fsz(20)):
+                data = self.save_mgr.load(s["id"])
+                if data:
+                    self.current_save_id = s["id"]
+                    self.current_save_name = data.get("name", s["id"])
+                    self._apply_save_data(data)
+                    self.player_dead = False
+                    self._death_load_modal_open = False
+                    self._start_loading(self.active_scene_index, STATE_PLAY, keep_player_pos=True)
+
     def _sleep_and_save(self) -> None:
         """Descansar y guardar: avanza 8 horas y persiste inventario/posición/tiempo."""
         # +8 horas
@@ -1300,6 +1467,10 @@ class Game:
         self._load_inventory_from_dump(data.get("inventory", []))
         self.camera.target = Vector2(self.player.position.x, self.player.position.y)
         self._clamp_camera_to_scene()
+        # Resetear estado de muerte al cargar partida
+        self.player_dead = False
+        self.player.hp = self.player.max_hp
+        self.player.stamina = self.player.max_stamina
 
     # ---------- Nueva partida ----------
     def _reset_for_new_game(self) -> None:
@@ -1310,6 +1481,10 @@ class Game:
         self._give_default_items()
         self.clock.elapsed = 6/24.0 * self.clock.seconds_per_day  # 06:00
         self.camera.target = Vector2(start_pos.x, start_pos.y)
+        # Resetear estado de muerte
+        self.player_dead = False
+        self.player.hp = self.player.max_hp
+        self.player.stamina = self.player.max_stamina
 
     def _create_new_game(self, name: str) -> None:
         self._reset_for_new_game()
