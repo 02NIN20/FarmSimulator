@@ -133,9 +133,10 @@ class Game:
         # reloj
         self.clock = GameClock(seconds_per_day=300.0)
 
-        # assets
+        # assets (incluye fuente personalizada)
+        self.custom_font: Optional[Font] = None
         self.loading_texture: Optional[Texture2D] = None
-        self.spring_texture: Optional[Texture2D] = None  # <--- portada Primavera
+        self.spring_texture: Optional[Texture2D] = None
         self._load_assets()
 
         # Menú principal estacional
@@ -230,6 +231,16 @@ class Game:
         return [s1, s2, s3, s4]
 
     def _load_assets(self) -> None:
+        # Cargar fuente personalizada
+        try:
+            # Definir rango de caracteres a cargar (incluye acentos, eñes, etc.)
+            # 0 significa cargar todos los caracteres disponibles en la fuente
+            # self.custom_font = load_font_ex(b"assets/NotoSans-Regular.ttf", 32, None, 0)
+            # Establecer filtro de textura para mejor calidad
+            set_texture_filter(self.custom_font.texture, TEXTURE_FILTER_BILINEAR)
+        except Exception:
+            self.custom_font = None
+        
         if LOADING_IMAGE_PATH is not None:
             try:
                 self.loading_texture = load_texture(LOADING_IMAGE_PATH)
@@ -238,12 +249,14 @@ class Game:
 
         # --- Portada personalizada para Primavera ---
         try:
-            # coloca tu imagen en assets/apertura.png
             self.spring_texture = load_texture("assets/apertura.png")
         except Exception:
             self.spring_texture = None
 
     def _unload_assets(self) -> None:
+        if self.custom_font is not None:
+            unload_font(self.custom_font)
+            self.custom_font = None
         if self.loading_texture is not None:
             unload_texture(self.loading_texture)
             self.loading_texture = None
@@ -284,7 +297,7 @@ class Game:
                     self._newgame_modal_open = False
                 else:
                     self.state = STATE_MAIN_MENU
-                    self._init_main_menu_theme()  # ← CAMBIO: Aleatoriza al volver
+                    self._init_main_menu_theme()
 
         # En juego: toggles
         if self.state == STATE_PLAY and not self.loading:
@@ -308,7 +321,7 @@ class Game:
             if self.state == STATE_CONFIG:
                 self.state = STATE_MAIN_MENU
                 self.ui_state["res_dropdown_open"] = False
-                self._init_main_menu_theme()  # ← CAMBIO: Aleatoriza al volver
+                self._init_main_menu_theme()
             elif self.state == STATE_PLAY:
                 if self.inventory.is_open:
                     self.inventory.is_open = False
@@ -497,7 +510,7 @@ class Game:
 
         # Actualizar el reloj solo si NO estamos en pausa ni muertos
         if not self.ingame_menu_open and not self.player_dead:
-            self.clock.update(dt)  # ← Ahora se detiene en pausa y muerte
+            self.clock.update(dt)
 
     # ---------- transiciones ----------
     def _start_loading(self, target_scene_index: int, next_state: str, keep_player_pos: bool = False) -> None:
@@ -533,9 +546,17 @@ class Game:
             self._draw_play_state(ui, fsz)
             self._draw_loading_overlay(fsz)
         else:
-            draw_text("Estado desconocido", 10, 10, fsz(22), RED)
+            self._draw_text_custom("Estado desconocido", 10, 10, fsz(22), RED)
 
         end_drawing()
+
+    # ---------- Helper para dibujar texto con fuente personalizada ----------
+    def _draw_text_custom(self, text: str, x: int, y: int, font_size: int, color: Color) -> None:
+        """Dibuja texto con fuente personalizada o por defecto si no está cargada."""
+        if self.custom_font is not None:
+            draw_text_ex(self.custom_font, text, Vector2(float(x), float(y)), float(font_size), 0, color)
+        else:
+            draw_text(text, x, y, font_size, color)
 
     # ---------- Menú principal ----------
     def _draw_main_menu(self, ui_dims: dict, fsz) -> None:
@@ -547,8 +568,8 @@ class Game:
         title = "ASTRA"
         tx = (self.screen_w - measure_text(title, fs)) // 2
         ty = int(self.screen_h * 0.12)
-        draw_text(title, tx + 2, ty + 2, fs, Color(0, 0, 0, 90))
-        draw_text(title, tx, ty, fs, Color(25, 102, 204, 255))
+        self._draw_text_custom(title, tx + 2, ty + 2, fs, Color(0, 0, 0, 90))
+        self._draw_text_custom(title, tx, ty, fs, Color(25, 102, 204, 255))
 
         labels = ["Jugar", "Configuración", "Créditos", "Salir"]
         bw = int(min(self.screen_w * 0.35, 420))
@@ -566,7 +587,7 @@ class Game:
 
         tip = "↑/↓ para navegar   •   Enter para aceptar   •   T cambia fondo"
         fs_tip = fsz(16)
-        draw_text(tip, (self.screen_w - measure_text(tip, fs_tip)) // 2, self.screen_h - fs_tip - 12, fs_tip, Color(40, 40, 40, 200))
+        self._draw_text_custom(tip, (self.screen_w - measure_text(tip, fs_tip)) // 2, self.screen_h - fs_tip - 12, fs_tip, Color(40, 40, 40, 200))
 
         if self.main_menu.get("credits_open", False):
             self._draw_credits_overlay(fsz)
@@ -655,7 +676,6 @@ class Game:
 
         # --- Fondo según tema ---
         if theme == "Primavera":
-            # Si hay textura personalizada, usarla; si no, fallback al gradiente original
             if self.spring_texture is not None:
                 tex = self.spring_texture
                 scale = min(self.screen_w / tex.width, self.screen_h / tex.height)
@@ -725,7 +745,7 @@ class Game:
         x = (self.screen_w - w)//2
         y = (self.screen_h - h)//2
         self._draw_panel(x, y, w, h, Color(250, 250, 250, 255), Color(60, 60, 60, 230), radius=0.08)
-        draw_text("CRÉDITOS", x + 16, y + 14, fsz(28), BLACK)
+        self._draw_text_custom("CRÉDITOS", x + 16, y + 14, fsz(28), BLACK)
         fs = fsz(18)
         lines = [
             "Astra – NASA Space Apps Challenge", "",
@@ -735,7 +755,7 @@ class Game:
         ]
         ty = y + 64
         for ln in lines:
-            draw_text(ln, x + 16, ty, fs, BLACK)
+            self._draw_text_custom(ln, x + 16, ty, fs, BLACK)
             ty += fs + 6
         bw, bh = 140, 40
         bx = x + w - bw - 16
@@ -746,22 +766,22 @@ class Game:
 
     # ---------- Config ----------
     def _draw_config(self, ui_dims: dict, fsz) -> None:
-        draw_text("CONFIGURACIÓN", ui_dims["left_margin"], int(self.screen_h * 0.12), fsz(32), BLACK)
+        self._draw_text_custom("CONFIGURACIÓN", ui_dims["left_margin"], int(self.screen_h * 0.12), fsz(32), BLACK)
         block_x = ui_dims["left_margin"]
         block_y = int(self.screen_h * 0.22)
         slider_w = ui_dims["slider_w"]
         slider_h = ui_dims["slider_h"]
         gap_y = int(self.screen_h * 0.08)
 
-        draw_text("Música", block_x, block_y - fsz(18), fsz(18), BLACK)
+        self._draw_text_custom("Música", block_x, block_y - fsz(18), fsz(18), BLACK)
         self.ui_state["music_volume"] = ui_helpers.slider_horizontal(block_x, block_y, slider_w, slider_h, self.ui_state["music_volume"], "music_dragging", self.ui_state)
 
         sfx_y = block_y + gap_y
-        draw_text("SFX", block_x, sfx_y - fsz(18), fsz(18), BLACK)
+        self._draw_text_custom("SFX", block_x, sfx_y - fsz(18), fsz(18), BLACK)
         self.ui_state["sfx_volume"] = ui_helpers.slider_horizontal(block_x, sfx_y, slider_w, slider_h, self.ui_state["sfx_volume"], "sfx_dragging", self.ui_state)
 
         drop_y = sfx_y + gap_y
-        draw_text("Resolución", block_x, drop_y - fsz(18), fsz(18), BLACK)
+        self._draw_text_custom("Resolución", block_x, drop_y - fsz(18), fsz(18), BLACK)
         drop_w = int(slider_w * 0.9)
         drop_h = max(28, ui_dims["button_h"])
         drop_label = f"{RESOLUTIONS[self.res_index][0]}x{RESOLUTIONS[self.res_index][1]}"
@@ -781,7 +801,7 @@ class Game:
 
         # Botón de pantalla completa
         fullscreen_y = drop_y + gap_y + drop_h - int(drop_h * 0.47)
-        draw_text("Pantalla completa", block_x, fullscreen_y - fsz(18), fsz(18), BLACK)
+        self._draw_text_custom("Pantalla completa", block_x, fullscreen_y - fsz(18), fsz(18), BLACK)
         fs_label = "Activada" if self.ui_state["fullscreen"] else "Desactivada"
         fs_btn_w = int(drop_w * 0.6)
         if ui_helpers.draw_button_left(block_x, fullscreen_y, fs_btn_w, drop_h, fs_label, font_size=fsz(18)):
@@ -796,7 +816,7 @@ class Game:
         if ui_helpers.draw_button_left(block_x + btn_w + gap_btn, by, btn_w, btn_h, "Volver", font_size=fsz(20)):
             self.state = STATE_MAIN_MENU
             self.ui_state["res_dropdown_open"] = False
-            self._init_main_menu_theme()  # ← CAMBIO: Aleatoriza al volver
+            self._init_main_menu_theme()
 
     def _apply_resolution(self) -> None:
         new_w, new_h = RESOLUTIONS[self.res_index]
@@ -879,8 +899,8 @@ class Game:
                      c.a)
 
     def _draw_text_shadow(self, text: str, x: int, y: int, fs: int, fg: Color) -> None:
-        draw_text(text, x + 1, y + 1, fs, Color(0, 0, 0, 120))
-        draw_text(text, x, y, fs, fg)
+        self._draw_text_custom(text, x + 1, y + 1, fs, Color(0, 0, 0, 120))
+        self._draw_text_custom(text, x, y, fs, fg)
 
     def _draw_panel(self, x: int, y: int, w: int, h: int, fill: Color, border: Color, radius: float = 0.2) -> None:
         draw_rectangle(x + 2, y + 2, w, h, Color(0, 0, 0, 60))
@@ -991,7 +1011,7 @@ class Game:
                 self._draw_panel(ix, iy, inner, inner, col, self._color_scale(col, 0.7), radius=0.18)
                 nf = max(12, int(slot_size * 0.26))
                 qtxt = str(qty)
-                draw_text(qtxt, sx + slot_size - measure_text(qtxt, nf) - 6, sy + slot_size - nf - 4, nf, RAYWHITE)
+                self._draw_text_custom(qtxt, sx + slot_size - measure_text(qtxt, nf) - 6, sy + slot_size - nf - 4, nf, RAYWHITE)
 
             if i == self.hotbar_index:
                 draw_rectangle_lines(sx - 3, sy - 3, slot_size + 6, slot_size + 6, Color(255, 220, 120, 255))
@@ -1029,7 +1049,7 @@ class Game:
         if self.ui_state.get("show_fps", False):
             fps_txt = f"{get_fps()} FPS"
             fs = max(14, int(self.screen_h * 0.022))
-            draw_text(fps_txt, self.screen_w - measure_text(fps_txt, fs) - 10, 10, fs, BLACK)
+            self._draw_text_custom(fps_txt, self.screen_w - measure_text(fps_txt, fs) - 10, 10, fs, BLACK)
 
         self._draw_hotbar_right()
 
@@ -1050,7 +1070,7 @@ class Game:
         clicked = hovered and is_mouse_button_pressed(MOUSE_LEFT_BUTTON)
         bg = Color(70,70,75,230) if not (hovered or selected) else Color(95,95,102,240)
         self._draw_panel(x, y, w, h, bg, Color(0,0,0,210), 0.18)
-        draw_text(label, x + 12, y + (h - fsz(18))//2, fsz(18), RAYWHITE)
+        self._draw_text_custom(label, x + 12, y + (h - fsz(18))//2, fsz(18), RAYWHITE)
         return clicked
 
     def _draw_pause_menu(self, ui_dims, fsz):
@@ -1059,7 +1079,7 @@ class Game:
         x = (self.screen_w - w)//2
         y = (self.screen_h - h)//2
         self._draw_panel(x, y, w, h, Color(245,245,245,255), Color(60,60,60,230), 0.08)
-        draw_text("PAUSA", x+16, y+14, fsz(28), BLACK)
+        self._draw_text_custom("PAUSA", x+16, y+14, fsz(28), BLACK)
         # Tabs
         tab_w = int(w*0.22)
         tab_h = 38
@@ -1110,7 +1130,7 @@ class Game:
             mx, my = x + (w-mw)//2, y + (h-mh)//2
             self._draw_panel(mx, my, mw, mh, Color(250,250,250,255), Color(90,90,90,220), 0.06)
             msg = "¿Volver al menú principal?" if self.confirm_menu else "¿Salir del juego?"
-            draw_text(msg, mx+16, my+12, fsz(22), BLACK)
+            self._draw_text_custom(msg, mx+16, my+12, fsz(22), BLACK)
             if ui_helpers.draw_button_left(mx+16, my+56, 120, 38, "Cancelar", font_size=fsz(18)):
                 self.confirm_menu = False
                 self.confirm_quit = False
@@ -1119,36 +1139,36 @@ class Game:
                     self.state = STATE_MAIN_MENU
                     self.ingame_menu_open = False
                     self.confirm_menu = False
-                    self.player_dead = False  # Resetear estado de muerte al volver al menú
-                    self._init_main_menu_theme()  # ← CAMBIO: Aleatoriza al volver al menú
+                    self.player_dead = False
+                    self._init_main_menu_theme()
                 else:
                     self.running = False
 
     def _pause_content_video(self, x, y, w, h, fsz):
-        draw_text("Brillo", x+16, y+16, fsz(18), BLACK)
+        self._draw_text_custom("Brillo", x+16, y+16, fsz(18), BLACK)
         self.ui_state["brightness"] = ui_helpers.slider_horizontal(x+16, y+40, int(w*0.6), 18, self.ui_state["brightness"], "brightness_dragging", self.ui_state)
         
-        draw_text("Mostrar rejilla", x+16, y+78, fsz(18), BLACK)
+        self._draw_text_custom("Mostrar rejilla", x+16, y+78, fsz(18), BLACK)
         if ui_helpers.draw_button_left(x+16, y+100, 160, 34, "Alternar", font_size=fsz(18)):
             self.ui_state["show_grid"] = not self.ui_state["show_grid"]
             self._apply_grid_visibility_to_scenes()
         
-        draw_text("Pantalla completa", x+16, y+148, fsz(18), BLACK)
+        self._draw_text_custom("Pantalla completa", x+16, y+148, fsz(18), BLACK)
         fs_label = "Activada" if self.ui_state["fullscreen"] else "Desactivada"
         if ui_helpers.draw_button_left(x+16, y+170, 160, 34, fs_label, font_size=fsz(18)):
             self._toggle_fullscreen()
 
     def _pause_content_audio(self, x, y, w, h, fsz):
-        draw_text("Volumen general", x+16, y+16, fsz(18), BLACK)
+        self._draw_text_custom("Volumen general", x+16, y+16, fsz(18), BLACK)
         self.ui_state["master_volume"] = ui_helpers.slider_horizontal(x+16, y+40, int(w*0.6), 18, self.ui_state["master_volume"], "master_dragging", self.ui_state)
-        draw_text("Música", x+16, y+78, fsz(18), BLACK)
+        self._draw_text_custom("Música", x+16, y+78, fsz(18), BLACK)
         self.ui_state["music_volume"] = ui_helpers.slider_horizontal(x+16, y+100, int(w*0.6), 18, self.ui_state["music_volume"], "music_dragging", self.ui_state)
-        draw_text("Efectos", x+16, y+138, fsz(18), BLACK)
+        self._draw_text_custom("Efectos", x+16, y+138, fsz(18), BLACK)
         self.ui_state["sfx_volume"] = ui_helpers.slider_horizontal(x+16, y+160, int(w*0.6), 18, self.ui_state["sfx_volume"], "sfx_dragging", self.ui_state)
 
     def _pause_content_game(self, x, y, w, h, fsz):
-        draw_text("Opciones de juego", x+16, y+16, fsz(18), BLACK)
-        draw_text("Cabañas = punto de guardado (E).", x+16, y+44, fsz(16), Color(40,40,40,255))
+        self._draw_text_custom("Opciones de juego", x+16, y+16, fsz(18), BLACK)
+        self._draw_text_custom("Cabañas = punto de guardado (E).", x+16, y+44, fsz(16), Color(40,40,40,255))
 
     # ---------- Loading overlay ----------
     def _draw_loading_overlay(self, fsz) -> None:
@@ -1165,7 +1185,7 @@ class Game:
         draw_rectangle(0, 0, self.screen_w, self.screen_h, Color(30, 30, 30, max(0, min(255, alpha))))
         if self.loading_texture is None:
             fs = fsz(28)
-            draw_text("Cargando...", self.screen_w // 2 - measure_text("Cargando...", fs) // 2, self.screen_h // 2 - fs // 2, fs, Color(220, 220, 220, max(120, alpha)))
+            self._draw_text_custom("Cargando...", self.screen_w // 2 - measure_text("Cargando...", fs) // 2, self.screen_h // 2 - fs // 2, fs, Color(220, 220, 220, max(120, alpha)))
         else:
             tex_w = self.loading_texture.width
             tex_h = self.loading_texture.height
@@ -1243,10 +1263,8 @@ class Game:
 
     def _draw_death_screen(self, fsz) -> None:
         """Pantalla de muerte con opciones de menú principal o cargar partida."""
-        # Fondo oscuro semi-transparente
         draw_rectangle(0, 0, self.screen_w, self.screen_h, Color(0, 0, 0, 180))
         
-        # Panel central
         w = int(self.screen_w * 0.50)
         h = int(self.screen_h * 0.45)
         x = (self.screen_w - w) // 2
@@ -1254,26 +1272,22 @@ class Game:
         
         self._draw_panel(x, y, w, h, Color(250, 250, 250, 255), Color(100, 30, 30, 230), radius=0.08)
         
-        # Título "HAS MUERTO"
         title = "HAS MUERTO"
         fs_title = fsz(42)
         title_w = measure_text(title, fs_title)
-        draw_text(title, x + (w - title_w) // 2, y + 30, fs_title, Color(180, 30, 30, 255))
+        self._draw_text_custom(title, x + (w - title_w) // 2, y + 30, fs_title, Color(180, 30, 30, 255))
         
-        # Mensaje
         msg = "Tu aventura ha llegado a su fin..."
         fs_msg = fsz(20)
         msg_w = measure_text(msg, fs_msg)
-        draw_text(msg, x + (w - msg_w) // 2, y + 90, fs_msg, Color(60, 60, 60, 255))
+        self._draw_text_custom(msg, x + (w - msg_w) // 2, y + 90, fs_msg, Color(60, 60, 60, 255))
         
-        # Botones
         btn_w = int(w * 0.70)
         btn_h = 50
         btn_x = x + (w - btn_w) // 2
         btn_y = y + 160
         gap = 20
         
-        # Botón Menú Principal
         if ui_helpers.draw_button_left(btn_x, btn_y, btn_w, btn_h, "Menú Principal", font_size=fsz(24)):
             self.player_dead = False
             self.player.hp = self.player.max_hp
@@ -1282,20 +1296,16 @@ class Game:
             self.ingame_menu_open = False
             self._init_main_menu_theme()
         
-        # Botón Cargar Partida
         if ui_helpers.draw_button_left(btn_x, btn_y + btn_h + gap, btn_w, btn_h, "Cargar Partida", font_size=fsz(24)):
             self._death_load_modal_open = True
         
-        # Modal de carga de partidas
         if self._death_load_modal_open:
             self._draw_death_load_modal(fsz)
 
     def _draw_death_load_modal(self, fsz) -> None:
         """Modal para cargar una partida desde la pantalla de muerte."""
-        # Fondo adicional
         draw_rectangle(0, 0, self.screen_w, self.screen_h, Color(0, 0, 0, 100))
         
-        # Panel del modal
         mw = int(self.screen_w * 0.70)
         mh = int(self.screen_h * 0.75)
         mx = (self.screen_w - mw) // 2
@@ -1303,28 +1313,24 @@ class Game:
         
         self._draw_panel(mx, my, mw, mh, Color(245, 245, 245, 255), Color(80, 80, 80, 230), radius=0.06)
         
-        # Título
         title = "SELECCIONA UNA PARTIDA"
         fs_title = fsz(28)
-        draw_text(title, mx + 20, my + 16, fs_title, BLACK)
+        self._draw_text_custom(title, mx + 20, my + 16, fs_title, BLACK)
         
-        # Botón cerrar
         close_btn_w = 120
         close_btn_h = 38
         if ui_helpers.draw_button_left(mx + mw - close_btn_w - 20, my + 12, close_btn_w, close_btn_h, "Cerrar", font_size=fsz(18)):
             self._death_load_modal_open = False
             return
         
-        # Lista de partidas
         slots = self.save_mgr.list_slots()
         
         if not slots:
             msg = "No hay partidas guardadas"
             fs_msg = fsz(20)
-            draw_text(msg, mx + (mw - measure_text(msg, fs_msg)) // 2, my + mh // 2, fs_msg, Color(100, 100, 100, 255))
+            self._draw_text_custom(msg, mx + (mw - measure_text(msg, fs_msg)) // 2, my + mh // 2, fs_msg, Color(100, 100, 100, 255))
             return
         
-        # Área de scroll para partidas
         list_y = my + 70
         list_h = mh - 90
         row_h = 80
@@ -1339,17 +1345,14 @@ class Game:
         for i, s in enumerate(slots):
             row_y = list_y + i * (row_h + gap)
             
-            # No dibujar si está fuera del área visible
             if row_y + row_h < list_y or row_y > list_y + list_h:
                 continue
             
             slot_x = mx + 20
             slot_w = mw - 40
             
-            # Tarjeta de partida
             self._draw_panel(slot_x, row_y, slot_w, row_h, Color(252, 252, 252, 255), Color(120, 120, 120, 220), 0.06)
             
-            # Banda de estación
             elapsed = float(s["clock_elapsed"])
             spd = float(s["seconds_per_day"])
             day = self._day_from_elapsed(elapsed, spd)
@@ -1357,14 +1360,12 @@ class Game:
             season = season_names[((day-1)//30) % len(season_names)]
             draw_rectangle(slot_x, row_y, 8, row_h, season_strip(season))
             
-            # Información de la partida
             name = s["name"]
             hhmm = self._fmt_time_from_elapsed(elapsed, spd)
             info = f"{name}   |   Escena {s['scene_index']}   |   Día {day}  {hhmm}"
-            draw_text(info, slot_x + 18, row_y + 12, fsz(20), BLACK)
-            draw_text(f"Modificado: {s['updated']}", slot_x + 18, row_y + 40, fsz(16), Color(60, 60, 60, 255))
+            self._draw_text_custom(info, slot_x + 18, row_y + 12, fsz(20), BLACK)
+            self._draw_text_custom(f"Modificado: {s['updated']}", slot_x + 18, row_y + 40, fsz(16), Color(60, 60, 60, 255))
             
-            # Botón Cargar
             btn_w = 140
             btn_h = 36
             btn_x = slot_x + slot_w - btn_w - 12
@@ -1382,15 +1383,12 @@ class Game:
 
     def _sleep_and_save(self) -> None:
         """Descansar y guardar: avanza 8 horas y persiste inventario/posición/tiempo."""
-        # +8 horas
         spd = self.clock.seconds_per_day
         self.clock.elapsed += (8.0 / 24.0) * spd
 
-        # recuperación
         self.player.hp = getattr(self.player, "max_hp", 100)
         self.player.stamina = self.player.max_stamina
 
-        # guardar
         data = self._build_save_data()
         if not self.current_save_id:
             self.current_save_id = self.save_mgr.create(data, name=(self.current_save_name or "Partida"))
@@ -1408,7 +1406,7 @@ class Game:
             "player": {"x": float(self.player.position.x), "y": float(self.player.position.y)},
             "clock_elapsed": float(self.clock.elapsed),
             "seconds_per_day": float(self.clock.seconds_per_day),
-            "inventory": self.inventory.export_state(),  # Usa el método correcto que preserva posiciones
+            "inventory": self.inventory.export_state(),
         }
 
     def _apply_save_data(self, data: dict) -> None:
@@ -1422,28 +1420,25 @@ class Game:
         self.clock.elapsed = float(data.get("clock_elapsed", 0.0))
         self.clock.seconds_per_day = float(data.get("seconds_per_day", self.clock.seconds_per_day))
         
-        # Restaurar inventario usando el método correcto que preserva posiciones
         inventory_data = data.get("inventory", {})
         if inventory_data:
             self.inventory.import_state(inventory_data)
         
         self.camera.target = Vector2(self.player.position.x, self.player.position.y)
         self._clamp_camera_to_scene()
-        # Resetear estado de muerte al cargar partida
         self.player_dead = False
         self.player.hp = self.player.max_hp
         self.player.stamina = self.player.max_stamina
 
     # ---------- Nueva partida ----------
     def _reset_for_new_game(self) -> None:
-        self.active_scene_index = 0  # Escenario 1
+        self.active_scene_index = 0
         start_pos = self._scene_center(self.scenes[self.active_scene_index])
         self.player.position = start_pos
         self.player.destination = Vector2(start_pos.x, start_pos.y)
         self._give_default_items()
-        self.clock.elapsed = 6/24.0 * self.clock.seconds_per_day  # 06:00
+        self.clock.elapsed = 6/24.0 * self.clock.seconds_per_day
         self.camera.target = Vector2(start_pos.x, start_pos.y)
-        # Resetear estado de muerte
         self.player_dead = False
         self.player.hp = self.player.max_hp
         self.player.stamina = self.player.max_stamina
@@ -1505,7 +1500,6 @@ class Game:
             key = get_key_pressed()
 
     def _draw_save_slots(self, fsz) -> None:
-        # Fondo cuadriculado sutil
         draw_rectangle(0, 0, self.screen_w, self.screen_h, Color(245,245,245,255))
         grid_c = Color(0, 0, 0, 10)
         cell = max(48, int(self.screen_h * 0.08))
@@ -1514,10 +1508,9 @@ class Game:
         for y in range(0, self.screen_h, cell):
             draw_line(0, y, self.screen_w, y, grid_c)
 
-        # Título
         title = "PARTIDAS"
         fs_title = fsz(36)
-        draw_text(title, 20, int(self.screen_h*0.08), fs_title, Color(25, 25, 25, 255))
+        self._draw_text_custom(title, 20, int(self.screen_h*0.08), fs_title, Color(25, 25, 25, 255))
 
         slots = self.save_mgr.list_slots()
         panel_x = int(self.screen_w*0.10)
@@ -1535,9 +1528,7 @@ class Game:
         fs_row = fsz(22)
         for i, s in enumerate(slots):
             row_y = y + i*(row_h + gap)
-            # tarjeta
             self._draw_panel(panel_x, row_y, panel_w, row_h, Color(252,252,252,255), Color(120,120,120,220), 0.06)
-            # banda estación
             elapsed = float(s["clock_elapsed"])
             spd = float(s["seconds_per_day"])
             day = self._day_from_elapsed(elapsed, spd)
@@ -1548,16 +1539,14 @@ class Game:
             name = s["name"]
             hhmm = self._fmt_time_from_elapsed(elapsed, spd)
             info = f"{name}   |   Escena {s['scene_index']}   |   Día {day}  {hhmm}"
-            draw_text(info, panel_x+18, row_y+12, fs_row, BLACK)
-            draw_text(f"Modificado: {s['updated']}", panel_x+18, row_y+12+fs_row+6, fsz(16), Color(60,60,60,255))
+            self._draw_text_custom(info, panel_x+18, row_y+12, fs_row, BLACK)
+            self._draw_text_custom(f"Modificado: {s['updated']}", panel_x+18, row_y+12+fs_row+6, fsz(16), Color(60,60,60,255))
 
-            # botones
             btn_w = 140
             btn_h = 38
             bx = panel_x + panel_w - btn_w - 16
             by = row_y + (row_h - btn_h)//2
 
-            # CARGAR
             if ui_helpers.draw_button_left(bx, by, btn_w, btn_h, "Cargar", font_size=fsz(20)):
                 data = self.save_mgr.load(s["id"])
                 if data:
@@ -1567,17 +1556,14 @@ class Game:
                     self._start_loading(self.active_scene_index, STATE_PLAY, keep_player_pos=True)
                     return
 
-            # ELIMINAR
             if ui_helpers.draw_button_left(bx - (btn_w+10), by, btn_w, btn_h, "Eliminar", font_size=fsz(20)):
                 self.save_mgr.delete(s["id"])
-                return  # refrescar la lista
+                return
 
-            # RENOMBRAR
             if ui_helpers.draw_button_left(bx - 2*(btn_w+10), by, btn_w, btn_h, "Renombrar", font_size=fsz(20)):
                 self._rename_slot_id = s["id"]
                 self._rename_buffer = s["name"]
 
-        # Renombrar (input línea inferior)
         if self._rename_slot_id:
             self._handle_rename_input()
             txt = f"Nuevo nombre: {self._rename_buffer}_"
@@ -1585,30 +1571,26 @@ class Game:
             x = (self.screen_w - w)//2
             ry = y + len(slots)*(row_h+gap) + 10
             self._draw_panel(x, ry, w, 60, Color(255,255,230,255), Color(100,100,80,230), 0.06)
-            draw_text("Escribe y pulsa Enter para confirmar, Backspace para borrar", x+10, ry+8, fsz(16), BLACK)
-            draw_text(txt, x+10, ry+32, fsz(20), BLACK)
+            self._draw_text_custom("Escribe y pulsa Enter para confirmar, Backspace para borrar", x+10, ry+8, fsz(16), BLACK)
+            self._draw_text_custom(txt, x+10, ry+32, fsz(20), BLACK)
 
-        # Crear partida
         bottom_y = y + len(slots)*(row_h + gap) + (70 if self._rename_slot_id else 0) + 18
         if ui_helpers.draw_button_left(panel_x, bottom_y, 260, 46, "Crear partida", font_size=fsz(22)):
             self._newgame_modal_open = True
             self._newgame_name = ""
 
-        # Modal nueva partida
         if self._newgame_modal_open:
             mw, mh = int(self.screen_w*0.46), 160
             mx, my = (self.screen_w-mw)//2, (self.screen_h-mh)//2
             self._draw_panel(mx, my, mw, mh, Color(250,250,250,255), Color(80,80,80,220), 0.06)
-            draw_text("Nombre de la partida:", mx+18, my+16, fsz(24), BLACK)
+            self._draw_text_custom("Nombre de la partida:", mx+18, my+16, fsz(24), BLACK)
 
-            # caja de texto
             self._handle_newgame_name_input()
             box_h = 40
             box_w = mw - 36
             self._draw_panel(mx+18, my+56, box_w, box_h, Color(240,240,240,255), Color(90,90,90,230), 0.06)
-            draw_text(self._newgame_name + "_", mx+24, my+64, fsz(20), BLACK)
+            self._draw_text_custom(self._newgame_name + "_", mx+24, my+64, fsz(20), BLACK)
 
-            # botones
             if ui_helpers.draw_button_left(mx+mw-140-18, my+mh-44, 140, 38, "Crear", font_size=fsz(20)):
                 if self._newgame_name.strip():
                     self._create_new_game(self._newgame_name.strip())
