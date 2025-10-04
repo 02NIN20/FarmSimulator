@@ -77,6 +77,7 @@ class Game:
 
         init_window(self.screen_w, self.screen_h, "ASTRA - NASA Space Apps")
         set_exit_key(0)  # Evitar cerrar con ESC
+        set_window_state(FLAG_WINDOW_RESIZABLE)  # Permitir redimensionar ventana
         set_target_fps(60)
 
         self.state = STATE_MAIN_MENU
@@ -125,6 +126,7 @@ class Game:
             "music_dragging": False, "sfx_dragging": False, "master_dragging": False,
             "brightness": 0.5, "brightness_dragging": False, "show_grid": True,
             "show_fps": False, "res_dropdown_open": False, "pause_tab": PAUSE_TAB_MAIN,
+            "fullscreen": False,  # Estado de pantalla completa
         }
         self._apply_grid_visibility_to_scenes()
 
@@ -353,6 +355,10 @@ class Game:
 
     # ---------- update ----------
     def _update(self, dt: float) -> None:
+        # Detectar cambio de tamaño de ventana
+        if is_window_resized():
+            self._handle_window_resize()
+        
         if self.state == STATE_MAIN_MENU:
             self._update_menu_fx(dt)
 
@@ -720,7 +726,7 @@ class Game:
         block_y = int(self.screen_h * 0.22)
         slider_w = ui_dims["slider_w"]
         slider_h = ui_dims["slider_h"]
-        gap_y = int(self.screen_h * 0.06)
+        gap_y = int(self.screen_h * 0.08)
 
         draw_text("Música", block_x, block_y - fsz(18), fsz(18), BLACK)
         self.ui_state["music_volume"] = ui_helpers.slider_horizontal(block_x, block_y, slider_w, slider_h, self.ui_state["music_volume"], "music_dragging", self.ui_state)
@@ -748,6 +754,14 @@ class Game:
                     self.ui_state["res_dropdown_open"] = False
                     break
 
+        # Botón de pantalla completa
+        fullscreen_y = drop_y + gap_y + drop_h - int(drop_h * 0.47)
+        draw_text("Pantalla completa", block_x, fullscreen_y - fsz(18), fsz(18), BLACK)
+        fs_label = "Activada" if self.ui_state["fullscreen"] else "Desactivada"
+        fs_btn_w = int(drop_w * 0.6)
+        if ui_helpers.draw_button_left(block_x, fullscreen_y, fs_btn_w, drop_h, fs_label, font_size=fsz(18)):
+            self._toggle_fullscreen()
+
         btn_w = int(ui_dims["button_w"] * 0.6)
         btn_h = ui_dims["button_h"]
         by = self.screen_h - int(self.screen_h * 0.06) - btn_h
@@ -773,6 +787,36 @@ class Game:
             self.camera.target = Vector2(self.player.position.x, self.player.position.y)
             self._clamp_camera_to_scene()
             self._setup_cabins()
+
+    def _handle_window_resize(self) -> None:
+        """Maneja el redimensionamiento de la ventana."""
+        new_w = get_screen_width()
+        new_h = get_screen_height()
+        if new_w != self.screen_w or new_h != self.screen_h:
+            self.screen_w, self.screen_h = new_w, new_h
+            self.scene_w, self.scene_h = new_w * 5, new_h * 5
+            self.scenes = self._create_scenes()
+            self.map_system = MapSystem(total_scenes=len(self.scenes))
+            self._apply_grid_visibility_to_scenes()
+            self.player.position = self._scene_center(self.scenes[self.active_scene_index])
+            self._update_camera_offset()
+            self.camera.target = Vector2(self.player.position.x, self.player.position.y)
+            self._clamp_camera_to_scene()
+            self._setup_cabins()
+            # Reinicializar partículas del menú con nuevo tamaño
+            if self.state == STATE_MAIN_MENU:
+                current_theme = self.main_menu.get("theme", "Primavera")
+                self.main_menu["theme"] = current_theme
+                self._init_main_menu_theme()
+                self.main_menu["theme"] = current_theme  # Mantener el tema actual
+
+    def _toggle_fullscreen(self) -> None:
+        """Alterna entre modo pantalla completa y ventana."""
+        self.ui_state["fullscreen"] = not self.ui_state["fullscreen"]
+        if self.ui_state["fullscreen"]:
+            toggle_fullscreen()
+        else:
+            toggle_fullscreen()
 
     # ---------- Juego ----------
     def _draw_play_state(self, ui_dims: dict, fsz) -> None:
@@ -1053,10 +1097,16 @@ class Game:
     def _pause_content_video(self, x, y, w, h, fsz):
         draw_text("Brillo", x+16, y+16, fsz(18), BLACK)
         self.ui_state["brightness"] = ui_helpers.slider_horizontal(x+16, y+40, int(w*0.6), 18, self.ui_state["brightness"], "brightness_dragging", self.ui_state)
+        
         draw_text("Mostrar rejilla", x+16, y+78, fsz(18), BLACK)
         if ui_helpers.draw_button_left(x+16, y+100, 160, 34, "Alternar", font_size=fsz(18)):
             self.ui_state["show_grid"] = not self.ui_state["show_grid"]
             self._apply_grid_visibility_to_scenes()
+        
+        draw_text("Pantalla completa", x+16, y+148, fsz(18), BLACK)
+        fs_label = "Activada" if self.ui_state["fullscreen"] else "Desactivada"
+        if ui_helpers.draw_button_left(x+16, y+170, 160, 34, fs_label, font_size=fsz(18)):
+            self._toggle_fullscreen()
 
     def _pause_content_audio(self, x, y, w, h, fsz):
         draw_text("Volumen general", x+16, y+16, fsz(18), BLACK)
