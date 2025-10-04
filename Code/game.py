@@ -147,7 +147,7 @@ class Game:
         self._rename_slot_id: str | None = None
         self._rename_buffer: str = ""
 
-        # Modal “nueva partida”
+        # Modal "nueva partida"
         self._newgame_modal_open = False
         self._newgame_name = ""
 
@@ -278,6 +278,7 @@ class Game:
                     self._newgame_modal_open = False
                 else:
                     self.state = STATE_MAIN_MENU
+                    self._init_main_menu_theme()  # ← CAMBIO: Aleatoriza al volver
 
         # En juego: toggles
         if self.state == STATE_PLAY and not self.loading:
@@ -295,6 +296,7 @@ class Game:
             if self.state == STATE_CONFIG:
                 self.state = STATE_MAIN_MENU
                 self.ui_state["res_dropdown_open"] = False
+                self._init_main_menu_theme()  # ← CAMBIO: Aleatoriza al volver
             elif self.state == STATE_PLAY:
                 if self.inventory.is_open:
                     self.inventory.is_open = False
@@ -479,7 +481,7 @@ class Game:
     def _end_loading(self) -> None:
         self.loading = False
         self.target_scene = None
-        self.swapped = False  # <- aquí estaba la indentación rota
+        self.swapped = False
         self.trans_elapsed = 0.0
         self._keep_player_pos_on_load = False
 
@@ -551,7 +553,9 @@ class Game:
 
     # ---- Tema estacional (fondos animados) ----
     def _init_main_menu_theme(self) -> None:
-        theme = choice(["Primavera", "Verano", "Otoño", "Invierno"])
+        import random
+        themes = ["Primavera", "Verano", "Otoño", "Invierno"]
+        theme = themes[random.randint(0, len(themes) - 1)]
         self.main_menu["theme"] = theme
         w, h = self.screen_w, self.screen_h
         particles = []
@@ -693,9 +697,9 @@ class Game:
         draw_text("CRÉDITOS", x + 16, y + 14, fsz(28), BLACK)
         fs = fsz(18)
         lines = [
-            "Astra — NASA Space Apps Challenge", "",
+            "Astra – NASA Space Apps Challenge", "",
             "Diseño y desarrollo: Equipo Astra",
-            "Arte y UI: Denisse (personaje), mapas y HUD)",
+            "Arte y UI: Denisse (personaje, mapas y HUD)",
             "Tecnologías: Python + raylib (pyray)",
         ]
         ty = y + 64
@@ -753,6 +757,7 @@ class Game:
         if ui_helpers.draw_button_left(block_x + btn_w + gap_btn, by, btn_w, btn_h, "Volver", font_size=fsz(20)):
             self.state = STATE_MAIN_MENU
             self.ui_state["res_dropdown_open"] = False
+            self._init_main_menu_theme()  # ← CAMBIO: Aleatoriza al volver
 
     def _apply_resolution(self) -> None:
         new_w, new_h = RESOLUTIONS[self.res_index]
@@ -1041,6 +1046,7 @@ class Game:
                     self.state = STATE_MAIN_MENU
                     self.ingame_menu_open = False
                     self.confirm_menu = False
+                    self._init_main_menu_theme()  # ← CAMBIO: Aleatoriza al volver al menú
                 else:
                     self.running = False
 
