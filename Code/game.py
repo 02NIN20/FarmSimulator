@@ -472,7 +472,9 @@ class Game:
             self.camera.target = Vector2(self.player.position.x, self.player.position.y)
             self._clamp_camera_to_scene()
 
-        self.clock.update(dt)
+        # Actualizar el reloj solo si NO estamos en pausa
+        if not self.ingame_menu_open:
+            self.clock.update(dt)  # ← Ahora se detiene en pausa
 
     # ---------- transiciones ----------
     def _start_loading(self, target_scene_index: int, next_state: str, keep_player_pos: bool = False) -> None:
