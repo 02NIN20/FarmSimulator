@@ -3,24 +3,11 @@
   "name": "sdasdas",
   "scene_index": 2,
   "player": {
-    "x": 1477.79541015625,
-    "y": 1137.0372314453125
+    "x": 2217.4228515625,
+    "y": 1606.030517578125
   },
-  "clock_elapsed": 1280.8676367420703,
+  "clock_elapsed": 1854.0551810655743,
   "seconds_per_day": 300.0,
-  "inventory": [
-    {
-      "id": "Roca",
-      "qty": 1
-    },
-    {
-      "id": "Rama de madera",
-      "qty": 5
-    },
-    {
-      "id": "Semilla de Col rizada (kale)",
-      "qty": 3
-    }
-  ],
-  "updated": "2025-10-03 15:36:30"
+  "inventory": [],
+  "updated": "2025-10-03 21:02:44"
 }

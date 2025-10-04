@@ -63,8 +63,15 @@ class Player:
 
         self._frames_right: List[Texture2D] = []
         self._frames_left:  List[Texture2D] = []
+        # Nuevas listas para arriba/abajo
+        self._frames_up:    List[Texture2D] = []
+        self._frames_down:  List[Texture2D] = []
+
         self._frame_idle_right: Optional[Texture2D] = None
         self._frame_idle_left:  Optional[Texture2D] = None
+        # Nuevos idle para arriba/abajo
+        self._frame_idle_up: Optional[Texture2D] = None
+        self._frame_idle_down: Optional[Texture2D] = None
 
         self._visual_height: float = 100
         self._feet_offset: float = 8.0
@@ -72,22 +79,45 @@ class Player:
         self._anim_time: float = 0.0
         self._last_move_dist: float = 0.0
 
+        # Guardamos ultima direccion de movimiento para decidir arriba/abajo vs izq/der
+        self._last_move_vx: float = 0.0
+        self._last_move_vy: float = 0.0
+
         self._fallback_color = RED
         self._load_sprites()
 
     def _load_sprites(self) -> None:
+        # Mantengo exactamente la misma lógica para derecha/izquierda
         right_files = [
-            "DenisseSprites_Caminando_01.png",
-            "DenisseSprites_Caminando_02.png",
-            "DenisseSprites_Caminando_03.png",
-            "DenisseSprites_Caminando_04.png",
+            "DenisseSprites_DERECHA_01.png",
+            "DenisseSprites_DERECHA_02.png",
+            "DenisseSprites_DERECHA_03.png",
+            "DenisseSprites_DERECHA_04.png",
         ]
         left_files = [
-            "DenisseSprites_Caminando_I05.png",
-            "DenisseSprites_Caminando_I06.png",
-            "DenisseSprites_Caminando_I07.png",
-            "DenisseSprites_Caminando_I08.png",
+            "DenisseSprites_IZQUIERDA_05.png",
+            "DenisseSprites_IZQUIERDA_06.png",
+            "DenisseSprites_IZQUIERDA_07.png",
+            "DenisseSprites_IZQUIERDA_08.png",
         ]
+
+        # Si quieres sprites arriba/abajo, agrega solo el nombre de archivo aquí (misma lógica)
+        # Ejemplo:
+        # up_files = ["DenisseSprites_ARRIBA_01.png", "DenisseSprites_ARRIBA_02.png", ...]
+        # down_files = ["DenisseSprites_ABAJO_01.png", "DenisseSprites_ABAJO_02.png", ...]
+        up_files = [
+            "DenisseSprites_BACK_01.png",
+            "DenisseSprites_BACK_02.png",
+            "DenisseSprites_BACK_03.png",
+            "DenisseSprites_BACK_04.png",
+        ]
+        down_files = [
+            "DenisseSprites_FRONT_01.png",
+            "DenisseSprites_FRONT_02.png",
+            "DenisseSprites_FRONT_03.png",
+            "DenisseSprites_FRONT_04.png",
+        ]
+
         for fn in right_files:
             tex = _try_load_texture_many(_paths_variants(fn))
             if tex: self._frames_right.append(tex)
@@ -95,11 +125,24 @@ class Player:
             tex = _try_load_texture_many(_paths_variants(fn))
             if tex: self._frames_left.append(tex)
 
+        # Carga arriba/abajo (misma lógica)
+        for fn in up_files:
+            tex = _try_load_texture_many(_paths_variants(fn))
+            if tex: self._frames_up.append(tex)
+        for fn in down_files:
+            tex = _try_load_texture_many(_paths_variants(fn))
+            if tex: self._frames_down.append(tex)
+
         self._frame_idle_right = self._frames_right[0] if self._frames_right else None
         self._frame_idle_left  = self._frames_left[0]  if self._frames_left  else None
 
+        # idle arriba/abajo: tomar primer frame de la lista si existe
+        self._frame_idle_up   = self._frames_up[0]    if self._frames_up    else None
+        self._frame_idle_down = self._frames_down[0]  if self._frames_down  else None
+
         if not self._frames_right or not self._frames_left:
-            print("[PLAYER] Aviso: no se encontraron todos los sprites.")
+            print("[PLAYER] Aviso: no se encontraron todos los sprites (derecha/izquierda).")
+        # notas: no hago print extra para arriba/abajo para no spam; puedes chequear si quieres.
 
     def unload(self) -> None:
         for t in self._frames_right:
@@ -108,8 +151,17 @@ class Player:
         for t in self._frames_left:
             try: unload_texture(t)
             except Exception: pass
+        for t in self._frames_up:
+            try: unload_texture(t)
+            except Exception: pass
+        for t in self._frames_down:
+            try: unload_texture(t)
+            except Exception: pass
+
         self._frames_right.clear()
         self._frames_left.clear()
+        self._frames_up.clear()
+        self._frames_down.clear()
 
     @staticmethod
     def _get_attr_or_key(p_input: Any, name: str, default=None):
@@ -182,6 +234,9 @@ class Player:
                 self.position.y += vy * step
                 moved_dist = step
             moved = True
+            # actualizamos ultima direccion de movimiento
+            self._last_move_vx = vx
+            self._last_move_vy = vy
             if abs(vx) >= 0.1:
                 self._facing_right = vx >= 0.0
 
@@ -196,6 +251,9 @@ class Player:
                     self.position.y += vy * step
                     moved = True
                     moved_dist = step
+                    # guardamos la direccion tal cual viene (no normalizada)
+                    self._last_move_vx = vx
+                    self._last_move_vy = vy
                     if abs(vx) >= 0.1:
                         self._facing_right = vx >= 0.0
 
@@ -231,11 +289,54 @@ class Player:
         draw_texture_ex(tex, Vector2(draw_x, draw_y), 0.0, scale, WHITE)
 
     def _choose_texture(self) -> Optional[Texture2D]:
-        frames = self._frames_right if self._facing_right else self._frames_left
-        idle   = self._frame_idle_right if self._facing_right else self._frame_idle_left
+        """
+        Selecciona la textura apropiada.
+        - Si el movimiento vertical domina (|vy| > |vx| y es > 0.1), usa arriba/abajo.
+        - Si el movimiento horizontal domina, usa derecha/izquierda según _facing_right.
+        - Si no hay frames para la dirección elegida, hace fallback al idle apropiado o a la otra dirección.
+        """
+        # Determinamos si usar vertical o horizontal según ultimo vector de movimiento
+        vx = self._last_move_vx
+        vy = self._last_move_vy
+
+        use_vertical = abs(vy) > abs(vx) and abs(vy) >= 0.1
+
+        if use_vertical:
+            # vy negativo => subir (arriba), vy positivo => bajar (abajo)
+            if vy < 0:
+                frames = self._frames_up
+                idle = self._frame_idle_up
+            else:
+                frames = self._frames_down
+                idle = self._frame_idle_down
+            # fallback: si no hay frames verticales, intentar horizontal idle
+            if not frames:
+                frames = self._frames_right if self._facing_right else self._frames_left
+                idle = self._frame_idle_right if self._facing_right else self._frame_idle_left
+        else:
+            frames = self._frames_right if self._facing_right else self._frames_left
+            idle   = self._frame_idle_right if self._facing_right else self._frame_idle_left
+            # fallback: si no hay frames horizontales, intentar verticales basandonos en vy
+            if not frames:
+                if vy < 0:
+                    frames = self._frames_up
+                    idle = self._frame_idle_up
+                else:
+                    frames = self._frames_down
+                    idle = self._frame_idle_down
+
+        # Si no hay frames en absoluto, retornar idle (si existe)
         if not frames:
             return idle
+
+        # Si no se esta moviendo, mostrar idle (si existe)
         if not self._moving:
-            return idle
+            # si hay idle para la direccion elegida, retornarlo
+            if idle:
+                return idle
+            # si no hay idle, retornar primer frame del conjunto
+            return frames[0] if frames else None
+
+        # si se está moviendo y hay frames, animar
         idx = int(self._anim_time) % len(frames)
         return frames[idx]
