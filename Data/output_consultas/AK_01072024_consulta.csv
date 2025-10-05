@@ -1,0 +1,2 @@
+TargetDate,DroughtDate,None_P,D0_P,D1_P,D2_P,D3_P,D4_P,PrecipDate,Precipitation_mm,SatelliteDate,SoilMoisture_SMAP,NDVI_MODIS,LST_Day_MODIS,WindSpeed_GLDAS
+01072024,20240109,100.0,0.0,0.0,0.0,0.0,0.0,20240107,10.75,20240107,0.3968,0.6602,298.8,5.09

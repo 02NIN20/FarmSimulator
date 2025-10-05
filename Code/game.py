@@ -20,7 +20,7 @@ from furnace_system import FurnaceSystem, SMELTING_RECIPES, COMBUSTIBLES  # NUEV
 from missions_system import MissionSystem  # NUEVO: Sistema de misiones
 from lluviaFX import LluviaFX         # ondas/impactos de lluvia (overlay)
 from nubladoFX import NubladoFX       # sombras de nubes con viento (overlay)
-
+from crop_system import CropSystem  # NUEVO: sistema de cultivos
 # ----------------- Config -----------------
 
 RESOLUTIONS = [
@@ -236,6 +236,9 @@ class Game:
         self.workbenches: dict[int, list[Rectangle]] = {}
         self.furnaces_pos: dict[int, list[Rectangle]] = {}
         self._setup_crafting_stations()
+
+        #HEAD
+        self.crops = CropSystem()
 
         # --- Noche/día (overlay por hora) ---
         self.night_force = False     # N forza noche, D libera
@@ -600,6 +603,52 @@ class Game:
             if is_key_pressed(KEY_SEVEN): self.hotbar_index = min(6, self.hotbar_size - 1)
             if is_key_pressed(KEY_EIGHT): self.hotbar_index = min(7, self.hotbar_size - 1)
             if is_key_pressed(KEY_NINE):  self.hotbar_index = min(8, self.hotbar_size - 1)
+        
+        # --- PLANTAR (C) ---
+        if (self.state == STATE_PLAY and not self.loading
+            and not self.player_dead
+            and not self.inventory.is_open
+            and not self.map_system.is_open
+            and not self.crafting.is_open
+            and not self.furnace.is_open
+            and not self.missions.is_open):
+            
+            if is_key_pressed(KEY_C):
+                # Posición del mouse en el mundo
+                mouse_world = get_screen_to_world_2d(get_mouse_position(), self.camera)
+                scene_id = self.active_scene_index + 1
+
+                # Estrategia simple: busca la primera semilla permitida para la región que el jugador tenga
+                allowed = self.crops.allowed_seeds_here(scene_id)
+                seed_to_plant = None
+                for sid in allowed:
+                    try:
+                        if self.inventory.has_item(sid, 1):
+                            seed_to_plant = sid
+                            break
+                    except Exception:
+                        pass
+
+                if seed_to_plant:
+                    planted = self.crops.try_plant(scene_id, mouse_world, seed_to_plant, self.inventory)
+                    # Si quieres feedback cuando planta/falla, puedes mostrar un texto o un sonido aquí.
+                else:
+                    # Feedback opcional: no tienes semillas válidas para esta región
+                    pass
+        # --- COSECHAR (E) ---
+        if (self.state == STATE_PLAY and not self.loading
+            and not self.player_dead
+            and not self.inventory.is_open
+            and not self.map_system.is_open
+            and not self.crafting.is_open
+            and not self.furnace.is_open
+            and not self.missions.is_open):
+            
+            if is_key_pressed(KEY_E):
+                scene_id = self.active_scene_index + 1
+                # Recoge el cultivo listo más cercano (si lo hay) y lo mete al inventario
+                self.crops.try_harvest_near(scene_id, self.player.position, self.inventory, radius=38.0)
+
         # --- Controles de filtro noche/día ---
         if self.state == STATE_PLAY and not self.loading:
             if is_key_pressed(KEY_N):
@@ -608,6 +657,7 @@ class Game:
                 self.night_force = False  # liberar forzado
                 hotbar_index = min(7, self.hotbar_size - 1)
             if is_key_pressed(KEY_NINE):  self.hotbar_index = min(8, self.hotbar_size - 1)
+    
     # ---------- update ----------
     def _update(self, dt: float) -> None:
         if is_window_resized():
@@ -729,6 +779,11 @@ class Game:
                         self.player.hp = max(0.0, getattr(self.player, "hp", 100.0) - float(dmg))
             except Exception:
                 pass
+
+            # Progresión de cultivos (solo cuando estamos jugando y no cargando)
+            if self.state == STATE_PLAY and not self.loading and not self.player_dead:
+                self.crops.update(dt, self.active_scene_index + 1)
+
 
             # Ataque del jugador
             if self._pending_attack:
@@ -1198,6 +1253,7 @@ class Game:
         self.spawns.draw(self.active_scene_index)
         self.player.draw()
         self.spawns.update(self.active_scene_index, self.player.position)
+        self.crops.draw_world(self.active_scene_index + 1)
         end_mode_2d()
 
         self._draw_day_night_overlay()

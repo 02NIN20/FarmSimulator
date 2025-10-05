@@ -1,0 +1,56 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>bfbe2ff9-747b-4131-8e3c-1037b48b3c24</ProjectGuid>
+    <ProjectHome>.</ProjectHome>
+    <StartupFile>Aeterna_FINAL.py</StartupFile>
+    <SearchPath>
+    </SearchPath>
+    <WorkingDirectory>.</WorkingDirectory>
+    <OutputPath>.</OutputPath>
+    <Name>Aeterna_FINAL</Name>
+    <RootNamespace>Aeterna_FINAL</RootNamespace>
+    <InterpreterId>Global|VisualStudio|prueba1</InterpreterId>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DebugSymbols>true</DebugSymbols>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <DebugSymbols>true</DebugSymbols>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Aeterna_FINAL.py" />
+    <Compile Include="core\database_manager.py" />
+    <Compile Include="data_sources\appeears\appeears_api.py" />
+    <Compile Include="data_sources\appeears\__init__.py" />
+    <Compile Include="data_sources\drought\api_client.py" />
+    <Compile Include="data_sources\drought\zone_model.py" />
+    <Compile Include="data_sources\drought\__init__.py" />
+    <Compile Include="data_sources\giovanni\giovanni_api.py" />
+    <Compile Include="data_sources\giovanni\__init__.py" />
+    <Compile Include="data_sources\__init__.py" />
+    <Compile Include="verificar_dato.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <InterpreterReference Include="Global|VisualStudio|prueba1" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="core\" />
+    <Folder Include="data_sources\" />
+    <Folder Include="data_sources\appeears\" />
+    <Folder Include="data_sources\drought\" />
+    <Folder Include="data_sources\giovanni\" />
+  </ItemGroup>
+  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
+  <!-- Uncomment the CoreCompile target to enable the Build command in
+       Visual Studio and specify your pre- and post-build commands in
+       the BeforeBuild and AfterBuild targets below. -->
+  <!--<Target Name="CoreCompile" />-->
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+</Project>
