@@ -122,7 +122,38 @@ class Game:
 
         self.map_system = MapSystem(total_scenes=len(self.scenes))
         self.spawns = SpawnManager(self.inventory)
+
+        # --- Texturas para spawns del suelo (semillas y similares) ---
+        if hasattr(self.spawns, "set_seed_textures"):
+            self.spawns.set_seed_textures({
+                # OJO: las CLAVES deben coincidir con los item_id que spawnea tu juego
+                # y los valores con los PNG que tienes en /assets
+
+                "seed_wheat":      "assets/trigo_semilla.png",
+                "seed_barley":     "assets/cebada_semilla.png",
+                "seed_sunflower":  "assets/girasol_semilla.png",
+                "seed_soy":        "assets/soja_semilla.png",
+                "seed_potato":     "assets/papa_semilla.png",
+                "seed_grape":      "assets/uva_semilla.png",
+                "seed_apple":      "assets/manzana_semilla.png",
+                "seed_carrot":     "assets/zanahoria_semilla.png",
+                "seed_blueberry":  "assets/arandano_semilla.png",
+                "seed_kale":       "assets/colrizada_semilla.png",
+
+                # Si hay ítems que también caen pero no tienen PNG, déjalos en None
+                "leaves":          None,
+                "wood_branch":     None,
+                "rock":            None,
+                # ATENCIÓN: en tu inventario inicial tienes "seed_corn". Si luego
+                # llega a spawnear y quieres ícono, agrega el PNG (ej. maiz_semilla.png)
+                # y mapea: "seed_corn": "assets/maiz_semilla.png"
+            })
+
+        # (opcional) activar etiquetas de depuración para ver el item_id sobre el ítem
+        # self.spawns.debug_labels = True
+
         self.animals = AnimalManager()
+
         self._pending_attack = False
 
         # NUEVO: Sistemas de crafteo y fundición
@@ -323,6 +354,12 @@ class Game:
         if self.winter_texture is not None:
             unload_texture(self.winter_texture)
             self.winter_texture = None
+
+    try:
+        if hasattr(self.spawns, "unload_assets"):
+            self.spawns.unload_assets()
+    except Exception:
+        pass
     # ---------- loop ----------
     def run(self) -> None:
         while self.running and not window_should_close():

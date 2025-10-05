@@ -1,164 +1,165 @@
 # ground_spawns.py
 from __future__ import annotations
-from typing import Dict, List, Tuple, Optional
-import random
-from pyray import *
+from typing import Dict, List
+from dataclasses import dataclass
+from pyray import (
+    Vector2, Color, WHITE, BLACK,
+    draw_circle, draw_circle_lines, draw_text, measure_text,
+    get_random_value, load_texture, unload_texture, draw_texture_ex
+)
 
-# --- Import robusto de SPAWN_TABLES ---
-try:
-    import spawn_tables as _sp
-    SPAWN_TABLES = getattr(_sp, "SPAWN_TABLES", None)
-    if not isinstance(SPAWN_TABLES, dict):
-        raise ImportError("spawn_tables.SPAWN_TABLES no es un dict o no existe")
-except Exception as e:
-    print("[ground_spawns] Aviso:", e)
-    # Fallback mínimo para no romper el juego si spawn_tables falla o no existe
-    SPAWN_TABLES = {
-        1: {
-            "first_count": (20, 30),
-            "repeat_count": (5, 10),
-            "items": {
-                "leaves":      {"w": 10, "qty": (1, 3)},
-                "wood_branch": {"w": 8,  "qty": (1, 2)},
-                "rock":        {"w": 6,  "qty": (1, 2)},
-            }
-        }
-    }
+# ------------------------------------------------------------
+# Parámetros ajustables
+# ------------------------------------------------------------
+SEED_ICON_SCALE = 0.10        # escala del PNG de semilla (↓ era muy grande)
+PICKUP_RADIUS   = 42.0        # radio para auto-pickup
+SHOW_DEBUG_ID   = False       # para ver el id encima
 
+@dataclass
 class GroundItem:
-    __slots__=("item_id","qty","pos","color","size")
-    def __init__(self, item_id: str, qty: int, pos: Vector2, color: Color, size: int = 14) -> None:
-        self.item_id = item_id
-        self.qty = qty
-        self.pos = pos
-        self.color = color
-        self.size = size
+    item_id: str
+    qty: int
+    pos: Vector2
+
 
 class SpawnManager:
-    """Spawns persistentes por escena: primera entrada abundante, luego reposición ligera."""
+    """
+    Administra ítems en el suelo.
+    Usado por game.py:
+      - SpawnManager(inventory)
+      - on_enter_scene(scene_index, scene_size, polygon_world)
+      - update(scene_index, player_position)
+      - draw(scene_index)
+
+    Novedad: texturas de semillas y auto-pickup por proximidad.
+    """
+
     def __init__(self, inventory) -> None:
         self.inventory = inventory
-        self.items_by_scene: Dict[int, List[GroundItem]] = {}
-        self.visited: Dict[int, int] = {}  # scene_id -> veces visitada
-        self._color_cache: Dict[str, Color] = {}
+        self._spawns: Dict[int, List[GroundItem]] = {}
 
-    # --- API ---
-    def on_enter_scene(self, scene_id: int, scene_size: Vector2, polygon: Optional[List[Vector2]] = None) -> None:
-        count = self.visited.get(scene_id, 0)
-        first_time = count == 0
-        self.visited[scene_id] = count + 1
+        # Texturas
+        self._seed_textures: Dict[str, "Texture2D"] = {}
+        self._seed_tex_missing: "Texture2D | None" = None
 
-        existing = len(self.items_by_scene.get(scene_id, []))
-        target = 0
-        tbl = SPAWN_TABLES.get(scene_id, SPAWN_TABLES.get(1, {}))
-        first_rng  = tbl.get("first_count",  (20, 30))
-        repeat_rng = tbl.get("repeat_count", (5, 10))
+    # ---------------- Texturas ----------------
 
-        if first_time:
-            a, b = first_rng
-            target = random.randint(a, b)
-        else:
-            a, b = repeat_rng
-            if existing < a:
-                target = random.randint(max(0, a - existing), max(0, b - existing))
+    def set_seed_textures(self, mapping: Dict[str, str]) -> None:
+        """Registra texturas {'seed_wheat': 'assets/trigo_semilla.png', ...}"""
+        self.unload_textures()
+        for item_id, path in (mapping or {}).items():
+            if not path:
+                continue
+            try:
+                tex = load_texture(path)
+                self._seed_textures[item_id] = tex
+            except Exception:
+                pass
+        self._seed_tex_missing = None
 
-        if target > 0:
-            batch = self._roll_items(scene_id, target)
-            lst = self.items_by_scene.setdefault(scene_id, [])
-            for item_id, qty in batch:
-                pos = self._random_position(scene_size, polygon)
-                color = self._get_color(item_id)
-                lst.append(GroundItem(item_id, qty, pos, color))
+    def unload_textures(self) -> None:
+        for tex in list(self._seed_textures.values()):
+            try:
+                unload_texture(tex)
+            except Exception:
+                pass
+        self._seed_textures.clear()
 
-    def update(self, scene_id: int, player_pos: Vector2, pickup_radius: float = 22.0) -> None:
-        arr = self.items_by_scene.get(scene_id, [])
-        if not arr:
-            return
-        # más cercano dentro del radio
-        best_i = -1
-        best_d2 = pickup_radius * pickup_radius
-        for i, gi in enumerate(arr):
-            dx = player_pos.x - gi.pos.x
-            dy = player_pos.y - gi.pos.y
-            d2 = dx*dx + dy*dy
-            if d2 <= best_d2:
-                best_d2 = d2
-                best_i = i
-        if best_i >= 0:
-            gi = arr[best_i]
-            label = f"[E] Recoger {gi.item_id} x{gi.qty}"
-            fs = 18
-            tw = measure_text(label, fs)
-            draw_rectangle(int(gi.pos.x - tw/2) - 6, int(gi.pos.y - 32), tw + 12, fs + 8, Color(0,0,0,150))
-            draw_text(label, int(gi.pos.x - tw/2), int(gi.pos.y - 28), fs, Color(255,255,255,240))
-            if is_key_pressed(KEY_E):
-                self.inventory.add_item(gi.item_id, gi.qty)
-                arr.pop(best_i)
+        if self._seed_tex_missing is not None:
+            try:
+                unload_texture(self._seed_tex_missing)
+            except Exception:
+                pass
+        self._seed_tex_missing = None
 
-    def draw(self, scene_id: int) -> None:
-        arr = self.items_by_scene.get(scene_id, [])
-        for gi in arr:
-            x = int(gi.pos.x - gi.size/2)
-            y = int(gi.pos.y - gi.size/2)
-            draw_rectangle(x, y, gi.size, gi.size, gi.color)
-            draw_rectangle_lines(x, y, gi.size, gi.size, Color(0,0,0,170))
+    def _get_seed_texture(self, item_id: str):
+        return self._seed_textures.get(item_id, self._seed_tex_missing)
 
-    # --- Internos ---
-    def _roll_items(self, scene_id: int, n: int) -> List[Tuple[str,int]]:
-        tbl = SPAWN_TABLES.get(scene_id, SPAWN_TABLES.get(1, {}))
-        items = tbl.get("items", {})
-        if not items:
-            return [("leaves", 1) for _ in range(n)]
-        pool = [(iid, int(meta.get("w",1)), meta.get("qty",(1,1))) for iid, meta in items.items()]
-        total_w = sum(w for _, w, _ in pool) or 1
-        out: List[Tuple[str,int]] = []
-        for _ in range(n):
-            r = random.uniform(0, total_w)
-            acc = 0.0
-            pick = pool[-1]
-            for entry in pool:
-                acc += entry[1]
-                if r <= acc:
-                    pick = entry
-                    break
-            qmin, qmax = pick[2]
-            out.append((pick[0], random.randint(qmin, qmax)))
+    # --------------- Ciclo de vida por escena ---------------
+
+    def on_enter_scene(self, scene_index: int, scene_size: Vector2, polygon_world=None) -> None:
+        # Si no hay spawns generados para esta escena, generar algunos de ejemplo
+        if scene_index not in self._spawns:
+            self._spawns[scene_index] = self._quick_generate(scene_size)
+
+    def update(self, scene_index: int, player_pos: Vector2) -> None:
+        # Auto-pickup por proximidad
+        self._try_auto_pickup(scene_index, player_pos, PICKUP_RADIUS)
+
+    def draw(self, scene_index: int) -> None:
+        for g in self._spawns.get(scene_index, []):
+            self._draw_ground_item(g)
+
+    # --------------- Generación rápida (demo) ---------------
+
+    def _quick_generate(self, scene_size: Vector2) -> List[GroundItem]:
+        out: List[GroundItem] = []
+        w, h = float(scene_size.x), float(scene_size.y)
+
+        candidates = [
+            "seed_wheat", "seed_barley", "seed_sunflower", "seed_soy",
+            "seed_potato", "seed_grape", "seed_apple", "seed_carrot",
+            "seed_blueberry", "seed_kale",
+        ]
+
+        base_n = 6
+        for _ in range(base_n):
+            item_id = candidates[get_random_value(0, len(candidates) - 1)]
+            qty = get_random_value(1, 2)  # cantidades pequeñas
+            x = float(get_random_value(int(w * 0.18), int(w * 0.82)))
+            y = float(get_random_value(int(h * 0.18), int(h * 0.82)))
+            out.append(GroundItem(item_id=item_id, qty=qty, pos=Vector2(x, y)))
         return out
 
-    def _get_color(self, item_id: str) -> Color:
-        col = self._color_cache.get(item_id)
-        if col is not None:
-            return col
-        try:
-            col = self.inventory.item_database[item_id].icon_color
-        except Exception:
-            col = Color(200,200,200,255)
-        self._color_cache[item_id] = col
-        return col
+    # ---------------- Dibujo ----------------
 
-    def _random_position(self, scene_size: Vector2, polygon: Optional[List[Vector2]]) -> Vector2:
-        pad = 48
-        if not polygon:
-            return Vector2(random.uniform(pad, scene_size.x - pad),
-                           random.uniform(pad, scene_size.y - pad))
-        # muestreo por rechazo dentro del polígono (si existe)
-        min_x = min(p.x for p in polygon); max_x = max(p.x for p in polygon)
-        min_y = min(p.y for p in polygon); max_y = max(p.y for p in polygon)
-        for _ in range(50):
-            x = random.uniform(min_x + pad, max_x - pad)
-            y = random.uniform(min_y + pad, max_y - pad)
-            if self._point_in_polygon(x, y, polygon):
-                return Vector2(x, y)
-        return Vector2(random.uniform(pad, scene_size.x - pad),
-                       random.uniform(pad, scene_size.y - pad))
+    def _draw_ground_item(self, g: GroundItem) -> None:
+        pos = g.pos
+        qty = max(1, int(g.qty))
+        tex = self._get_seed_texture(g.item_id)
 
-    def _point_in_polygon(self, x: float, y: float, pts: List[Vector2]) -> bool:
-        inside = False
-        j = len(pts) - 1
-        for i in range(len(pts)):
-            xi, yi = pts[i].x, pts[i].y
-            xj, yj = pts[j].x, pts[j].y
-            if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-9) + xi):
-                inside = not inside
-            j = i
-        return inside
+        if tex is not None and getattr(tex, "id", 0) != 0:
+            scale = SEED_ICON_SCALE
+            draw_w = int(tex.width * scale)
+            draw_h = int(tex.height * scale)
+            draw_texture_ex(tex, Vector2(pos.x - draw_w / 2, pos.y - draw_h / 2), 0.0, scale, WHITE)
+        else:
+            # Fallback
+            draw_circle(int(pos.x), int(pos.y), 16, Color(60, 60, 60, 70))
+            draw_circle_lines(int(pos.x), int(pos.y), 16, Color(30, 30, 30, 90))
+
+        # Cantidad visible
+        fs = 16
+        label = f"x{qty}"
+        draw_text(label, int(pos.x) - measure_text(label, fs) // 2, int(pos.y) - 24, fs, WHITE)
+
+        # Debug opcional del id
+        if SHOW_DEBUG_ID:
+            dfs = 12
+            txt = g.item_id
+            draw_text(txt, int(pos.x) - measure_text(txt, dfs) // 2, int(pos.y) - 44, dfs, BLACK)
+
+    # --------------- Auto-pickup ----------------
+
+    def _try_auto_pickup(self, scene_index: int, player_pos: Vector2, radius: float) -> None:
+        items = self._spawns.get(scene_index, [])
+        if not items:
+            return
+
+        keep: List[GroundItem] = []
+        r2 = radius * radius
+
+        for g in items:
+            dx = player_pos.x - g.pos.x
+            dy = player_pos.y - g.pos.y
+            if (dx * dx + dy * dy) <= r2:
+                # Añadir al inventario
+                try:
+                    self.inventory.add_item(g.item_id, g.qty)
+                except Exception:
+                    # Si algo falla, no lo borres
+                    keep.append(g)
+            else:
+                keep.append(g)
+
+        self._spawns[scene_index] = keep

@@ -1,12 +1,12 @@
 {
   "id": "slot_1",
   "name": "hola",
-  "scene_index": 1,
+  "scene_index": 2,
   "player": {
-    "x": 2400.0,
-    "y": 1350.0
+    "x": 3072.064697265625,
+    "y": 2077.0283203125
   },
-  "clock_elapsed": 75.0,
+  "clock_elapsed": 1836.3899918626994,
   "seconds_per_day": 300.0,
   "inventory": {
     "rows": 4,
@@ -53,9 +53,168 @@
         "c": 6,
         "id": "log",
         "qty": 3
+      },
+      {
+        "r": 0,
+        "c": 7,
+        "id": "clay",
+        "qty": 5
       }
     ]
   },
-  "created": "2025-10-04 17:04:09",
-  "updated": "2025-10-04 17:04:09"
+  "missions": {
+    "visited": [
+      1,
+      2
+    ],
+    "slept": 17,
+    "flags": {
+      "opened_missions": false
+    },
+    "missions": [
+      {
+        "id": "prologue_return",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "first_steps",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "base_camp",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "survey_regions",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "basic_production",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "first_report",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_leaves",
+        "completed": true,
+        "claimed": false
+      },
+      {
+        "id": "mini_branches",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_rocks",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_logs",
+        "completed": true,
+        "claimed": false
+      },
+      {
+        "id": "mini_rope",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_hoe",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_pick",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_shovel",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_knife",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_glass",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_copper",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_iron",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_workbench",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_chest",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_candles",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_fert",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_visit_alaska",
+        "completed": true,
+        "claimed": false
+      },
+      {
+        "id": "mini_visit_ppr",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_visit_mich",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_jars",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_seeds_var4",
+        "completed": false,
+        "claimed": false
+      },
+      {
+        "id": "mini_basket",
+        "completed": false,
+        "claimed": false
+      }
+    ],
+    "selected": 0,
+    "open": false
+  },
+  "updated": "2025-10-05 00:29:11"
 }
