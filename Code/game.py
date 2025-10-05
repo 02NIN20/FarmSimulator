@@ -150,7 +150,7 @@ class Game:
             "music_dragging": False, "sfx_dragging": False, "master_dragging": False,
             "brightness": 0.5, "brightness_dragging": False, "show_grid": True,
             "show_fps": False, "res_dropdown_open": False, "pause_tab": PAUSE_TAB_MAIN,
-            "fullscreen": False,
+            "fullscreen": False,"weather_enabled": True,  
         }
         self._apply_grid_visibility_to_scenes()
 
@@ -662,6 +662,7 @@ class Game:
             self._clamp_camera_to_scene()
 
             # (esto está dentro de def _update, después de clamping de cámara)
+            # (esto está dentro de def _update, después de clamping de cámara)
             if self.state == STATE_PLAY and not self.loading:
                 sid = self.active_scene_index + 1
 
@@ -670,9 +671,19 @@ class Game:
                 wind_speed    = self.weather_cfg["wind_speed"].get(sid, 2.0)
                 wind_angle    = self.weather_cfg["wind_angle"].get(sid, 0.0)
 
-                # Actualizar simulaciones
-                self.fx_rain.update(dt, rain_intensity)
-                self.fx_clouds.update(dt, cloudiness, wind_speed, wind_angle)
+                weather_on = self.ui_state.get("weather_enabled", True)
+
+                if weather_on:
+                    self.fx_rain.update(dt, rain_intensity)
+                    self.fx_clouds.update(dt, cloudiness, wind_speed, wind_angle)
+                else:
+                    # Opción “silenciosa”: mantener apagado
+                    try:
+                        self.fx_rain.update(dt, 0.0)
+                        self.fx_clouds.update(dt, 0.0, wind_speed, wind_angle)
+                    except Exception:
+                        pass
+
 
 
 
@@ -1038,6 +1049,21 @@ class Game:
                 self._init_main_menu_theme()
                 self.main_menu["theme"] = current_theme
 
+            try:
+                if hasattr(self.fx_rain, "resize"):
+                    self.fx_rain.resize(self.screen_w, self.screen_h)
+                else:
+                    self.fx_rain = LluviaFX(self.screen_w, self.screen_h)
+
+                if hasattr(self.fx_clouds, "resize"):
+                    self.fx_clouds.resize(self.screen_w, self.screen_h)
+                else:
+                    self.fx_clouds = NubladoFX(self.screen_w, self.screen_h)
+            except Exception:
+                # Fallback robusto
+                self.fx_rain  = LluviaFX(self.screen_w, self.screen_h)
+                self.fx_clouds = NubladoFX(self.screen_w, self.screen_h)
+
     def _toggle_fullscreen(self) -> None:
         self.ui_state["fullscreen"] = not self.ui_state["fullscreen"]
         if self.ui_state["fullscreen"]:
@@ -1062,8 +1088,10 @@ class Game:
         end_mode_2d()
 
         # --- Dibujar efectos climáticos (en orden) ---
-        self.fx_clouds.draw()   # fondo de nubes
-        self.fx_rain.draw()     # lluvia encima
+        if self.ui_state.get("weather_enabled", True):
+            self.fx_clouds.draw()   # fondo de nubes
+            self.fx_rain.draw()     # lluvia encima
+
 
 
         self._apply_brightness_overlay()
@@ -1366,6 +1394,12 @@ class Game:
         fs_label = "Activada" if self.ui_state["fullscreen"] else "Desactivada"
         if ui_helpers.draw_button_left(x+16, y+170, 160, 34, fs_label, font_size=fsz(18)):
             self._toggle_fullscreen()
+
+        self._draw_text_custom("Clima (lluvia y nubes)", x+16, y+218, fsz(18), BLACK)
+        cl_label = "Activado" if self.ui_state.get("weather_enabled", True) else "Desactivado"
+        if ui_helpers.draw_button_left(x+16, y+240, 160, 34, cl_label, font_size=fsz(18)):
+            self.ui_state["weather_enabled"] = not self.ui_state.get("weather_enabled", True)
+
 
     def _pause_content_audio(self, x, y, w, h, fsz):
         self._draw_text_custom("Volumen general", x+16, y+16, fsz(18), BLACK)
