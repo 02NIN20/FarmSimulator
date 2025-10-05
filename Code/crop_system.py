@@ -92,6 +92,12 @@ class CropSystem:
             "seed_raspberry_ht": 90.0,
         }
 
+        self.external_growth_multiplier: float = 1.0  # NUEVO
+
+
+    def set_growth_multiplier(self, k: float) -> None:
+        self.external_growth_multiplier = max(0.1, min(3.0, float(k)))
+
     # ----------------- Consulta / reglas -----------------
     def allowed_seeds_here(self, scene_id: int) -> List[str]:
         return _allowed_seeds_for_scene(scene_id)

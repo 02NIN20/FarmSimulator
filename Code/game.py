@@ -21,6 +21,8 @@ from missions_system import MissionSystem  # NUEVO: Sistema de misiones
 from lluviaFX import LluviaFX         # ondas/impactos de lluvia (overlay)
 from nubladoFX import NubladoFX       # sombras de nubes con viento (overlay)
 from crop_system import CropSystem  # NUEVO: sistema de cultivos
+from automatic_query import set_current_state, climate_signals_day
+
 # ----------------- Config -----------------
 
 RESOLUTIONS = [
@@ -122,6 +124,14 @@ class Game:
 
         self.map_system = MapSystem(total_scenes=len(self.scenes))
         self.spawns = SpawnManager(self.inventory)
+
+        self.scene_to_state = {
+            1: "CA",  # Local/California
+            2: "AK",  # Alaska
+            3: "ND",  # Prairie Pothole (Dakota del Norte)
+            4: "MI",  # Michigan (si tienes datos; si no, deja CA/ND cercano)
+        }
+        set_current_state(self.scene_to_state.get(self.active_scene_index + 1, "CA"))
 
         # --- Texturas para spawns del suelo (semillas y similares) ---
         if hasattr(self.spawns, "set_seed_textures"):
@@ -781,6 +791,9 @@ class Game:
                 pass
 
             # Progresión de cultivos (solo cuando estamos jugando y no cargando)
+            self._sync_climate_from_day(dt)
+
+            # Progresión de cultivos (ya con multiplicador aplicado)
             if self.state == STATE_PLAY and not self.loading and not self.player_dead:
                 self.crops.update(dt, self.active_scene_index + 1)
 
@@ -2635,6 +2648,55 @@ class Game:
 
         # Overlay pantalla completa
         draw_rectangle(0, 0, self.screen_w, self.screen_h, tint)
+
+    def _sync_climate_from_day(self, dt: float) -> None:
+        """
+        Toma el día del reloj del juego y sincroniza:
+        - LluviaFX (intensidad)
+        - NubladoFX (nubosidad + viento)
+        - Multiplicador de crecimiento en cultivos
+        Sólo consulta automatic_query.climate_signals_day(day).
+        """
+        # Estado según escena ACTIVA (y asegurar que automatic_query lo use)
+        scene_id = self.active_scene_index + 1
+        state = self.scene_to_state.get(scene_id, "CA")
+        set_current_state(state)
+
+        # Día del juego (1..∞)
+        day_idx = int(self.clock.day)
+        sig = climate_signals_day(day_idx)
+
+        rain   = float(sig.get("rain", 0.0))
+        cloud  = float(sig.get("cloud", 0.0))
+        wspd   = float(sig.get("wind_speed_mps", 2.0))
+        wang   = float(sig.get("wind_angle_rad", 0.0))
+        gmul   = float(sig.get("crop_mul", 1.0))
+
+        # Empuja a FX de pantalla (si UI de clima está on)
+        weather_on = self.ui_state.get("weather_enabled", True)
+        if weather_on:
+            try: self.fx_rain.update(dt, rain)
+            except Exception: pass
+            try: self.fx_clouds.update(dt, cloud, wspd, wang)
+            except Exception: pass
+        else:
+            try: self.fx_rain.update(dt, 0.0)
+            except Exception: pass
+            try: self.fx_clouds.update(dt, 0.0, wspd, wang)
+            except Exception: pass
+
+        # Empuja a cultivos (velocidad de crecimiento)
+        try:
+            if hasattr(self.crops, "set_growth_multiplier"):
+                self.crops.set_growth_multiplier(gmul)
+        except Exception:
+            pass
+
+        # (Opcional) Si mantienes weather_cfg por escena para depuración/HUD:
+        self.weather_cfg["rain"][scene_id]       = rain
+        self.weather_cfg["cloud"][scene_id]      = cloud
+        self.weather_cfg["wind_speed"][scene_id] = wspd
+        self.weather_cfg["wind_angle"][scene_id] = wang
 
 # export
 __all__ = ["Game", "RESOLUTIONS"]
