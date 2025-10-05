@@ -18,13 +18,14 @@ class Scene:
         self,
         scene_id: int,
         size: Vector2,
-        color: Color,                        # compatibilidad: si no pasas land_color, usa este
+        color: Color,                        # compat: si no pasas land_color, usa este
         spawn: Vector2,
         grid_cell_size: int = 64,
         grid_enabled: bool = True,
         polygon_norm: Optional[List[Point]] = None,  # Polígono normalizado (0..1)
-        land_color: Optional[Color] = None,          # Color interior (cesped)
+        land_color: Optional[Color] = None,          # Color interior (césped)
         outer_color: Optional[Color] = None,         # Color exterior (más oscuro)
+        background_path: Optional[str] = None        # NUEVO: imagen de fondo opcional
     ) -> None:
         self.scene_id = scene_id
         self.size = size
@@ -47,12 +48,27 @@ class Scene:
         if polygon_norm:
             self._build_polygon_and_collisions(polygon_norm)
 
+        # --- NUEVO: textura de fondo opcional por escena ---
+        self.background_tex: Optional[Texture] = None
+        if background_path:
+            try:
+                self.background_tex = load_texture(background_path)
+            except Exception:
+                self.background_tex = None
+
         self.show_grid = True
 
     # --- Limpieza segura ---
     def __del__(self):
         try:
             self._unload_tiles()
+            # liberar textura de fondo si existe
+            if self.background_tex is not None:
+                try:
+                    unload_texture(self.background_tex)
+                except Exception:
+                    pass
+                self.background_tex = None
         except Exception:
             pass
 
@@ -80,7 +96,7 @@ class Scene:
 
     def _build_polygon_and_collisions(self, polygon_norm: List[Point]) -> None:
         """
-        Escala el polígono (0..1) al tamaño de escena y crea CollisionMap.
+        Escala el polígono (normalizado 0..1) al tamaño de escena y crea CollisionMap.
         Todo lo que quede FUERA del polígono se marca como sólido.
         """
         margin = 0.02  # mapas más amplios
@@ -110,36 +126,58 @@ class Scene:
             j = (i - 1) % n
             xi, yi = poly[i].x, poly[i].y
             xj, yj = poly[j].x, poly[j].y
-            intersect = ((yi > y) != (yj > y)) and \
-                        (x < (xj - xi) * (y - yi) / (yj - yi + 1e-9) + xi)
-            if intersect:
+            inter = ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi + 1e-9) + xi)
+            if inter:
                 inside = not inside
         return inside
 
     # ================= DIBUJO =================
 
+    def _draw_filled_polygon(self, poly: List[Vector2], col: Color) -> None:
+        # Triangulación "fan" simple (asume polígono convexo razonable)
+        if len(poly) < 3:
+            return
+        for i in range(1, len(poly) - 1):
+            draw_triangle(poly[0], poly[i], poly[i + 1], col)
+
+    def _draw_polygon_outline(self, poly: List[Vector2], col: Color, thickness: int = 1) -> None:
+        n = len(poly)
+        if n < 2:
+            return
+        for i in range(n):
+            j = (i + 1) % n
+            draw_line_ex(poly[i], poly[j], float(thickness), col)
+
     def draw(self) -> None:
         """
-        Si hay polígono: pinta el exterior con 'outer_color' y el interior con 'land_color'.
-        Si NO hay polígono: pinta todo con 'land_color' (Escena 1 u otras rectangulares).
+        Dibuja la escena completa. Si hay background_tex, se usa como fondo;
+        si no, se dibuja el color de tierra o el polígono como antes.
         """
-        if self.polygon_world:
-            # Exterior (mismo tono, más oscuro) — esto cubre TODO el mundo
-            draw_rectangle(0, 0, int(self.size.x), int(self.size.y), self.outer_color)
-
-            # Masa terrestre (interior)
-            self._draw_filled_polygon(self.polygon_world, self.land_color)
-
-            # “Repaso” del borde para evitar cualquier micro-grieta entre triángulos
-            self._draw_polygon_outline(self.polygon_world, self.land_color, 1)
-
-            # Borde sutil más oscuro para separar interior/exterior
-            edge_col = _scale_color(self.land_color, 0.55)
-            self._draw_polygon_outline(self.polygon_world, edge_col, 2)
+        if self.background_tex is not None:
+            # Dibuja la imagen ajustada a todo el tamaño de la escena
+            tex = self.background_tex
+            draw_texture_pro(
+                tex,
+                Rectangle(0, 0, float(tex.width), float(tex.height)),
+                Rectangle(0, 0, float(self.size.x), float(self.size.y)),
+                Vector2(0.0, 0.0),
+                0.0,
+                WHITE
+            )
         else:
-            draw_rectangle(0, 0, int(self.size.x), int(self.size.y), self.land_color)
+            # === LÓGICA ORIGINAL ===
+            if self.polygon_world:
+                # Fondo exterior + interior con silueta
+                draw_rectangle(0, 0, int(self.size.x), int(self.size.y), self.outer_color)
+                self._draw_filled_polygon(self.polygon_world, self.land_color)
+                self._draw_polygon_outline(self.polygon_world, self.land_color, 1)
+                edge_col = _scale_color(self.land_color, 0.55)
+                self._draw_polygon_outline(self.polygon_world, edge_col, 2)
+            else:
+                # Rectángulo completo
+                draw_rectangle(0, 0, int(self.size.x), int(self.size.y), self.land_color)
 
-        # Rejilla opcional
+        # Rejilla opcional (se mantiene)
         if self.grid_enabled and self.show_grid:
             cs = self.grid_cell_size
             col = Color(255, 255, 255, 28)
@@ -151,20 +189,3 @@ class Scene:
             while y <= int(self.size.y):
                 draw_line(0, y, int(self.size.x), y, col)
                 y += cs
-
-    def _draw_filled_polygon(self, pts: List[Vector2], color_fill: Color) -> None:
-        if len(pts) < 3:
-            return
-        cx = sum(p.x for p in pts) / len(pts)
-        cy = sum(p.y for p in pts) / len(pts)
-        center = Vector2(cx, cy)
-        for i in range(1, len(pts) - 1):
-            a, b = pts[i], pts[i + 1]
-            draw_triangle(center, a, b, color_fill)
-
-    def _draw_polygon_outline(self, pts: List[Vector2], col: Color, thickness: int = 1) -> None:
-        n = len(pts)
-        for i in range(n):
-            a = pts[i]
-            b = pts[(i + 1) % n]
-            draw_line_ex(a, b, float(thickness), col)
