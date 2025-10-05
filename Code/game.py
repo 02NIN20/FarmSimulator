@@ -153,7 +153,20 @@ class Game:
         # self.spawns.debug_labels = True
 
         self.animals = AnimalManager()
+        # --- Spawns de ítems y animales ---
+        self.spawns = SpawnManager(self.inventory)
 
+        self.animals = AnimalManager()
+        self.animals.set_textures_paths({
+            "cow":  {"left": "assets/vacaizquierda.png",  "right": "assets/vacaderecha.png"},
+            "pig":  {"left": "assets/cerdoizquierda.png", "right": "assets/cerdoderecha.png"},
+            "wolf": {"left": "assets/loboizquierda.png",  "right": "assets/loboderecha.png"},
+            "duck": {"left": "assets/patoizquierda.png",  "right": "assets/patoderecha.png"},
+        })
+
+        self.animals.allowed_species = ["cow", "pig", "wolf", "duck"]
+
+        
         self._pending_attack = False
 
         # NUEVO: Sistemas de crafteo y fundición
@@ -224,6 +237,45 @@ class Game:
         self.workbenches: dict[int, list[Rectangle]] = {}
         self.furnaces_pos: dict[int, list[Rectangle]] = {}
         self._setup_crafting_stations()
+        
+    def set_textures_paths(self, mapping: dict) -> None:
+        """
+        Recibe un dict como:
+        {
+            "cow":  {"left": "assets/vacaizquierda.png",  "right": "assets/vacaderecha.png"},
+            "pig":  {"left": "assets/cerdoizquierda.png", "right": "assets/cerdoderecha.png"},
+            "wolf": {"left": "assets/loboizquierda.png",  "right": "assets/loboderecha.png"},
+            "duck": {"left": "assets/patoizquierda.png",  "right": "assets/patoderecha.png"},
+        }
+        y registra los sprites con animals.register_species_sprites().
+        """
+        if not isinstance(mapping, dict):
+            return
+
+        normalized = {}  # especie -> (right_fname, left_fname)
+
+        for species_key, lr in mapping.items():
+            if not isinstance(lr, dict):
+                continue
+
+            left_path  = lr.get("left")
+            right_path = lr.get("right")
+            if not (left_path and right_path):
+                continue
+
+            # Nos quedamos solo con el nombre de archivo (animals._load_tex ya antepone 'assets/')
+            left_name  = os.path.basename(left_path)
+            right_name = os.path.basename(right_path)
+
+            # clave de especie en minúsculas
+            key = (species_key or "").strip().lower()
+
+            # Guardamos como (right, left) porque el loader espera ese orden
+            normalized[key] = (right_name, left_name)
+
+        # Registrar en animals.py
+        if normalized:
+            register_species_sprites(normalized)
 
     # ---------- helpers ----------
     def _give_default_items(self) -> None:
