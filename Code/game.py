@@ -906,11 +906,11 @@ class Game:
                                         Color(226,236,246,255), Color(200,218,238,255))
             grid_c = Color(60,90,120,25)
 
-        cell = max(48, int(self.screen_h * 0.08))
+        """cell = max(48, int(self.screen_h * 0.08))
         for x in range(0, self.screen_w, cell):
             draw_line(x, 0, x, self.screen_h, grid_c)
         for y in range(0, self.screen_h, cell):
-            draw_line(0, y, self.screen_w, y, grid_c)
+            draw_line(0, y, self.screen_w, y, grid_c)"""
 
         begin_blend_mode(BLEND_ALPHA)
         if theme in ("Primavera", "Invierno"):
