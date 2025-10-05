@@ -998,11 +998,13 @@ class Game:
         self._draw_furnace_prompt(fsz)    # NUEVO
         self._draw_sleep_prompt(fsz)
 
-        def _color_scale(self, c: Color, factor: float) -> Color:
-            return Color(int(max(0, min(255, c.r * factor))),
-                     int(max(0, min(255, c.g * factor))),
-                     int(max(0, min(255, c.b * factor))),
-                     c.a)
+    def _color_scale(self, c: Color, factor: float) -> Color:
+        return Color(
+            int(max(0, min(255, c.r * factor))),
+            int(max(0, min(255, c.g * factor))),
+            int(max(0, min(255, c.b * factor))),
+            c.a
+        )
 
     def _draw_text_shadow(self, text: str, x: int, y: int, fs: int, fg: Color) -> None:
         self._draw_text_custom(text, x + 1, y + 1, fs, Color(0, 0, 0, 120))
@@ -1818,11 +1820,38 @@ class Game:
 
         # recompensa (si existe)
         if reward is not None:
+            def _fmt_reward_one(r):
+                # Dict: {"item_id": "...", "qty": N}
+                if isinstance(r, dict):
+                    item = r.get("item_id") or r.get("id") or r.get("item")
+                    qty  = r.get("qty") or r.get("quantity") or r.get("count") or 1
+                    if item:
+                        return f"{str(item).replace('_',' ').title()} x{int(qty)}"
+                # Objeto con atributos item_id/qty/quantity
+                try:
+                    item = getattr(r, "item_id", getattr(r, "id", getattr(r, "item", None)))
+                    qty  = getattr(r, "qty", getattr(r, "quantity", getattr(r, "count", 1)))
+                    if item:
+                        return f"{str(item).replace('_',' ').title()} x{int(qty)}"
+                except Exception:
+                    pass
+                # Fallback
+                return str(r)
+
+            items_txt = []
+            if isinstance(reward, (list, tuple, set)):
+                for rr in reward:
+                    items_txt.append(_fmt_reward_one(rr))
+            else:
+                items_txt.append(_fmt_reward_one(reward))
+
             ry = yy + 10
             self._draw_text_custom("Recompensa:", det_x + 16, ry, fsz(16), Color(60, 60, 60, 255))
-            rtxt = str(reward) if not isinstance(reward, (list, tuple)) else ", ".join(map(str, reward))
-            self._draw_text_custom(rtxt, det_x + 16 + measure_text("Recompensa:", fsz(16)) + 12, ry, fsz(16), BLACK)
+            self._draw_text_custom(", ".join(items_txt),
+                                   det_x + 16 + measure_text("Recompensa:", fsz(16)) + 12,
+                                   ry, fsz(16), BLACK)
             yy = ry + fsz(16) + 8
+
 
         # estado / botón reclamar
         can_claim = False
