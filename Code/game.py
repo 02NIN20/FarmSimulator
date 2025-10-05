@@ -943,17 +943,31 @@ class Game:
                                         Color(226,236,246,255), Color(200,218,238,255))
             grid_c = Color(60,90,120,25)
 
-        cell = max(48, int(self.screen_h * 0.08))
+        """cell = max(48, int(self.screen_h * 0.08))
         for x in range(0, self.screen_w, cell):
             draw_line(x, 0, x, self.screen_h, grid_c)
         for y in range(0, self.screen_h, cell):
-            draw_line(0, y, self.screen_w, y, grid_c)
+            draw_line(0, y, self.screen_w, y, grid_c)"""
 
         begin_blend_mode(BLEND_ALPHA)
         if theme in ("Primavera", "Invierno"):
             for p in self.main_menu["particles"]:
                 c = Color(120,170,120,int(p["a"])) if theme=="Primavera" else Color(255,255,255,int(p["a"]))
                 draw_circle(int(p["x"]), int(p["y"]), float(p["r"]), c)
+        elif theme == "Verano":
+            for p in self.main_menu["particles"]:
+                draw_circle(int(p["x"]), int(p["y"]), float(p["r"]), Color(255,255,255,int(p["a"])))
+            begin_blend_mode(BLEND_ADDITIVE)
+            draw_circle(self.screen_w, 0, 110, Color(255,230,160,26))
+            draw_circle(self.screen_w, 0, 180, Color(255,230,160,18))
+            end_blend_mode()
+        else:
+            for p in self.main_menu["particles"]:
+                leaf_col = [Color(190,120,40,int(p["a"])), Color(215,150,50,int(p["a"])), Color(175,95,35,int(p["a"]))][(int(p["x"] + p["y"]) // 50) % 3]
+                rect = Rectangle(int(p["x"]), int(p["y"]), int(p["w"]), int(p["h"]))
+                origin = Vector2(p["w"]/2, p["h"]/2)
+                draw_rectangle_pro(rect, origin, float(p["rot"]), leaf_col)
+                draw_rectangle_lines_ex(rect, 1, Color(0, 0, 0, 40))
         end_blend_mode()
         # (resto igual que tu versión original; se omiten duplicados por brevedad)
 
