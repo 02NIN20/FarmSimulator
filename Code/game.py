@@ -1910,7 +1910,7 @@ class Game:
 
         btn_w = 160
         btn_h = 40
-        btn_x = det_x + det_w - btn_w - 16
+        btn_x = det_x + det_w - btn_w - 176
         btn_y = y + h - btn_h - 16
 
         claim_label = "Reclamar [R]" if can_claim else ("Reclamada" if e_claimed else "En progreso…")
