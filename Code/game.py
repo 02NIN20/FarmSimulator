@@ -917,6 +917,20 @@ class Game:
             for p in self.main_menu["particles"]:
                 c = Color(120,170,120,int(p["a"])) if theme=="Primavera" else Color(255,255,255,int(p["a"]))
                 draw_circle(int(p["x"]), int(p["y"]), float(p["r"]), c)
+        elif theme == "Verano":
+            for p in self.main_menu["particles"]:
+                draw_circle(int(p["x"]), int(p["y"]), float(p["r"]), Color(255,255,255,int(p["a"])))
+            begin_blend_mode(BLEND_ADDITIVE)
+            draw_circle(self.screen_w, 0, 110, Color(255,230,160,26))
+            draw_circle(self.screen_w, 0, 180, Color(255,230,160,18))
+            end_blend_mode()
+        else:
+            for p in self.main_menu["particles"]:
+                leaf_col = [Color(190,120,40,int(p["a"])), Color(215,150,50,int(p["a"])), Color(175,95,35,int(p["a"]))][(int(p["x"] + p["y"]) // 50) % 3]
+                rect = Rectangle(int(p["x"]), int(p["y"]), int(p["w"]), int(p["h"]))
+                origin = Vector2(p["w"]/2, p["h"]/2)
+                draw_rectangle_pro(rect, origin, float(p["rot"]), leaf_col)
+                draw_rectangle_lines_ex(rect, 1, Color(0, 0, 0, 40))
         end_blend_mode()
         # (resto igual que tu versión original; se omiten duplicados por brevedad)
 
