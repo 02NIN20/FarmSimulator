@@ -705,6 +705,38 @@ class Game:
                 self._end_loading()
                 self.state = self.post_load_state
 
+        # === CLIMA (SIEMPRE DENTRO DEL MISMO BLOQUE) ===
+        sid = self.active_scene_index + 1
+
+        # 1) Leemos configuración de clima para la escena activa
+        rain_intensity = self.weather_cfg["rain"].get(sid, 0.0)
+        cloudiness    = self.weather_cfg["cloud"].get(sid, 0.0)
+        wind_speed    = self.weather_cfg["wind_speed"].get(sid, 2.0)
+        wind_angle    = self.weather_cfg["wind_angle"].get(sid, 0.0)
+
+        # 2) Viewport de la cámara en coordenadas de mundo (para FX dentro de la escena)
+        vw = self.screen_w / max(0.001, self.camera.zoom)
+        vh = self.screen_h / max(0.001, self.camera.zoom)
+        vx = self.camera.target.x - vw * 0.5
+        vy = self.camera.target.y - vh * 0.5
+
+        if hasattr(self.fx_rain, "set_viewport"):
+            self.fx_rain.set_viewport(vx, vy, vw, vh)
+        if hasattr(self.fx_clouds, "set_viewport"):
+            self.fx_clouds.set_viewport(vx, vy, vw, vh)
+
+        # 3) Actualizamos FX de clima
+        weather_on = self.ui_state.get("weather_enabled", True)
+
+        if weather_on:
+            self.fx_rain.update(dt, rain_intensity)
+            self.fx_clouds.update(dt, cloudiness, wind_speed, wind_angle)
+        else:
+            # mantenerlos “apagados” sin generar
+            self.fx_rain.update(dt, 0.0)
+            self.fx_clouds.update(dt, 0.0, wind_speed, wind_angle)
+
+
         # Lógica en juego
         if (self.state == STATE_PLAY and not self.loading and
             not self.ingame_menu_open and not self.inventory.is_open and not self.map_system.is_open
@@ -1257,25 +1289,44 @@ class Game:
         begin_mode_2d(self.camera)
         self.scenes[self.active_scene_index].draw()
         self._draw_cabins_world()
-        self._draw_workbenches_world()  # NUEVO
-        self._draw_furnaces_world()     # NUEVO
+        self._draw_workbenches_world()
+        self._draw_furnaces_world()
+
+        # calcula viewport de mundo
+        vw = self.screen_w / max(0.001, self.camera.zoom)
+        vh = self.screen_h / max(0.001, self.camera.zoom)
+        vx = self.camera.target.x - vw * 0.5
+        vy = self.camera.target.y - vh * 0.5
+
+        # avisar a los FX
+        if hasattr(self.fx_rain, "set_viewport"):
+            self.fx_rain.set_viewport(vx, vy, vw, vh)
+        if hasattr(self.fx_clouds, "set_viewport"):
+            self.fx_clouds.set_viewport(vx, vy, vw, vh)
+
+
+        # --- Dibujar efectos climáticos dentro de la escena ---
+        if self.ui_state.get("weather_enabled", True):
+            self.fx_clouds.draw()   # nubes sobre el mapa
+            self.fx_rain.draw()     # lluvia sobre el terreno y objetos
+
         try:
             self.animals.draw(self.active_scene_index)
         except Exception:
             pass
+
         self.spawns.draw(self.active_scene_index)
         self.player.draw()
         self.spawns.update(self.active_scene_index, self.player.position)
         self.crops.draw_world(self.active_scene_index + 1)
         end_mode_2d()
 
+        # Ahora los filtros de día/noche y UI van después del mundo completo
         self._draw_day_night_overlay()
-        # --- Dibujar efectos climáticos (en orden) ---
-        if self.ui_state.get("weather_enabled", True):
-            self.fx_clouds.draw()   # fondo de nubes
-            self.fx_rain.draw()     # lluvia encima
-
-
+        self._apply_brightness_overlay()
+        self._draw_hud(fsz)
+        self.inventory.draw(self.screen_w, self.screen_h)
+        self.map_system.draw(self.screen_w, self.screen_h, self.active_scene_index)
 
         self._apply_brightness_overlay()
         self._draw_hud(fsz)

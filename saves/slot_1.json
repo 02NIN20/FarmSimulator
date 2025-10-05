@@ -3,10 +3,10 @@
   "name": "hola",
   "scene_index": 2,
   "player": {
-    "x": 3072.064697265625,
-    "y": 2077.0283203125
+    "x": 1460.8587646484375,
+    "y": 1084.3641357421875
   },
-  "clock_elapsed": 1836.3899918626994,
+  "clock_elapsed": 2173.581268457696,
   "seconds_per_day": 300.0,
   "inventory": {
     "rows": 4,
@@ -67,7 +67,7 @@
       1,
       2
     ],
-    "slept": 17,
+    "slept": 20,
     "flags": {
       "opened_missions": false
     },
@@ -216,5 +216,5 @@
     "selected": 0,
     "open": false
   },
-  "updated": "2025-10-05 00:29:11"
+  "updated": "2025-10-05 06:34:07"
 }

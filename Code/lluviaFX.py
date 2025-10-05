@@ -5,7 +5,7 @@ import math
 class LluviaFX:
     """Gestiona la simulación visual y el estado de los impactos de lluvia."""
 
-    IMPACT_LIFETIME = 0.5    
+    IMPACT_LIFETIME = 0.6    
     IMPACT_SIZE_MAX = 10.0   
     IMPACT_GENERATION_BASE = 500 
 
@@ -13,6 +13,13 @@ class LluviaFX:
         self.width = screen_w
         self.height = screen_h
         self.splashes = []
+        # NUEVO: viewport mundo
+        self._vx, self._vy = 0.0, 0.0
+        self._vw, self._vh = float(screen_w), float(screen_h)
+
+    def set_viewport(self, x: float, y: float, w: float, h: float) -> None:
+        self._vx, self._vy = float(x), float(y)
+        self._vw, self._vh = max(1.0, float(w)), max(1.0, float(h))
     
     def _create_impact(self, x: float, y: float) -> dict:
         """Método privado que crea una onda de impacto en el piso."""
@@ -27,21 +34,20 @@ class LluviaFX:
         }
 
     def update(self, frame_time: float, intensity: float):
-        """Actualiza el estado de la lluvia."""
-        
         impact_rate = self.IMPACT_GENERATION_BASE * intensity
         impacts_to_generate_float = impact_rate * frame_time
         impacts_to_generate = int(impacts_to_generate_float)
         remainder_probability = impacts_to_generate_float - impacts_to_generate
 
+        # Generar dentro del viewport de la cámara (mundo)
         for _ in range(impacts_to_generate):
-            x = random.uniform(0, self.width)
-            y = random.uniform(0, self.height)
+            x = random.uniform(self._vx, self._vx + self._vw)
+            y = random.uniform(self._vy, self._vy + self._vh)
             self.splashes.append(self._create_impact(x, y))
 
         if random.random() < remainder_probability:
-            x = random.uniform(0, self.width)
-            y = random.uniform(0, self.height)
+            x = random.uniform(self._vx, self._vx + self._vw)
+            y = random.uniform(self._vy, self._vy + self._vh)
             self.splashes.append(self._create_impact(x, y))
 
         temp_splashes = []
@@ -49,7 +55,6 @@ class LluviaFX:
             splash["lifetime"] -= frame_time
             if splash["lifetime"] > 0:
                 temp_splashes.append(splash)
-                
         self.splashes = temp_splashes
 
     def draw(self):
