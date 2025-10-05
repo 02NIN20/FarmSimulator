@@ -153,8 +153,7 @@ class Game:
         # self.spawns.debug_labels = True
 
         self.animals = AnimalManager()
-        # --- Spawns de ítems y animales ---
-        self.spawns = SpawnManager(self.inventory)
+        
 
         self.animals = AnimalManager()
         self.animals.set_textures_paths({
