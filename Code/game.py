@@ -817,7 +817,7 @@ class Game:
 
         begin_blend_mode(BLEND_ALPHA)
         if theme in ("Primavera", "Invierno"):
-            for p in self.main_menu["particles"]():
+            for p in self.main_menu["particles"]:
                 c = Color(120,170,120,int(p["a"])) if theme=="Primavera" else Color(255,255,255,int(p["a"]))
                 draw_circle(int(p["x"]), int(p["y"]), float(p["r"]), c)
         end_blend_mode()
@@ -998,10 +998,11 @@ class Game:
         self._draw_furnace_prompt(fsz)    # NUEVO
         self._draw_sleep_prompt(fsz)
 
-    def _color_scale(self, c: Color, factor: float) -> Color:
-        return Color(int(max(0, min(255, c.r * factor)))),
-        # corrected below:
-        # return Color(int(max(0, min(255, c.r * factor))), int(max(0, min(255, c.g * factor))), int(max(0, min(255, c.b * factor))), c.a)
+        def _color_scale(self, c: Color, factor: float) -> Color:
+            return Color(int(max(0, min(255, c.r * factor))),
+                     int(max(0, min(255, c.g * factor))),
+                     int(max(0, min(255, c.b * factor))),
+                     c.a)
 
     def _draw_text_shadow(self, text: str, x: int, y: int, fs: int, fg: Color) -> None:
         self._draw_text_custom(text, x + 1, y + 1, fs, Color(0, 0, 0, 120))
