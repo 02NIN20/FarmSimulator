@@ -285,7 +285,7 @@ class Player:
         draw_x = int(self.position.x - draw_w / 2)
         draw_y = int(self.position.y - draw_h + self._feet_offset)
 
-        draw_ellipse(int(self.position.x), int(self.position.y - 1), int(self._visual_height * 0.24), int(self._visual_height * 0.07), Color(0, 0, 0, 58))
+        draw_ellipse(int(self.position.x), int(self.position.y + 6), int(self._visual_height * 0.24), int(self._visual_height * 0.07), Color(0, 0, 0, 58))
         draw_texture_ex(tex, Vector2(draw_x, draw_y), 0.0, scale, WHITE)
 
     def _choose_texture(self) -> Optional[Texture2D]:
