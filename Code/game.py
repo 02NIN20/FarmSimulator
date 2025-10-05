@@ -236,6 +236,10 @@ class Game:
         self.workbenches: dict[int, list[Rectangle]] = {}
         self.furnaces_pos: dict[int, list[Rectangle]] = {}
         self._setup_crafting_stations()
+
+        # --- Noche/día (overlay por hora) ---
+        self.night_force = False     # N forza noche, D libera
+        self._night_smooth = 0.0     # suavizado del alpha
         
     def set_textures_paths(self, mapping: dict) -> None:
         """
@@ -596,7 +600,14 @@ class Game:
             if is_key_pressed(KEY_SEVEN): self.hotbar_index = min(6, self.hotbar_size - 1)
             if is_key_pressed(KEY_EIGHT): self.hotbar_index = min(7, self.hotbar_size - 1)
             if is_key_pressed(KEY_NINE):  self.hotbar_index = min(8, self.hotbar_size - 1)
-
+        # --- Controles de filtro noche/día ---
+        if self.state == STATE_PLAY and not self.loading:
+            if is_key_pressed(KEY_N):
+                self.night_force = True   # forzar noche
+            if is_key_pressed(KEY_D):
+                self.night_force = False  # liberar forzado
+                hotbar_index = min(7, self.hotbar_size - 1)
+            if is_key_pressed(KEY_NINE):  self.hotbar_index = min(8, self.hotbar_size - 1)
     # ---------- update ----------
     def _update(self, dt: float) -> None:
         if is_window_resized():
@@ -1189,6 +1200,7 @@ class Game:
         self.spawns.update(self.active_scene_index, self.player.position)
         end_mode_2d()
 
+        self._draw_day_night_overlay()
         # --- Dibujar efectos climáticos (en orden) ---
         if self.ui_state.get("weather_enabled", True):
             self.fx_clouds.draw()   # fondo de nubes
@@ -2513,6 +2525,60 @@ class Game:
             if ui_helpers.draw_button_left(mx+18, my+mh-44, 140, 38, "Cancelar", font_size=fsz(20)):
                 self._newgame_modal_open = False
 
+    def _draw_day_night_overlay(self) -> None:
+        """
+        Oscurece la pantalla con un tinte frío por la noche.
+        - Basado en self.clock.day_fraction (0..1)
+        - N fuerza la noche; D la libera.
+        - Libera automáticamente el forzado al amanecer (7:00–18:00).
+        - Suaviza transiciones para evitar parpadeos.
+        """
+        # Hora actual (0..24)
+        day_frac = getattr(getattr(self, "clock", None), "day_fraction", 0.5)
+        hour = (day_frac % 1.0) * 24.0
+
+        # Si está forzado y ya es de día (7–18), liberar automáticamente
+        if getattr(self, "night_force", False) and 7.0 <= hour <= 18.0:
+            self.night_force = False
+
+        # Intensidad natural por hora (0 día … 1 noche)
+        def intensity_from_fraction(t: float) -> float:
+            h = (t % 1.0) * 24.0
+            if 7.0 <= h <= 18.0:
+                base = 0.0                  # día
+            elif 5.0 <= h < 7.0:
+                base = 1.0 - (h - 5.0)/2.0  # amanece 1→0
+            elif 18.0 < h <= 20.0:
+                base = (h - 18.0)/2.0       # atardece 0→1
+            else:
+                base = 1.0                  # noche
+            import math
+            # easing coseno para suavizar
+            return max(0.0, min(1.0, 0.5 - 0.5 * math.cos(base * math.pi)))
+
+        # Objetivo: 1 si noche forzada, si no según hora
+        target = 1.0 if getattr(self, "night_force", False) else intensity_from_fraction(day_frac)
+
+        # Suavizado temporal
+        dt = get_frame_time()
+        smooth_speed = 2.5
+        if not hasattr(self, "_night_smooth"):
+            self._night_smooth = 0.0
+        if target > self._night_smooth:
+            self._night_smooth = min(target, self._night_smooth + smooth_speed * dt)
+        else:
+            self._night_smooth = max(target, self._night_smooth - smooth_speed * dt)
+
+        if self._night_smooth <= 0.01:
+            return  # nada que dibujar
+
+        # Curva de alpha (más rango en la zona oscura)
+        a = self._night_smooth
+        alpha = int(200 * (a ** 1.15))            # tope ~200 para no “matar” la escena
+        tint = Color(30, 45, 80, max(0, min(255, alpha)))  # azul frío
+
+        # Overlay pantalla completa
+        draw_rectangle(0, 0, self.screen_w, self.screen_h, tint)
 
 # export
 __all__ = ["Game", "RESOLUTIONS"]
