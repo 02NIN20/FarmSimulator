@@ -18,6 +18,8 @@ from animal_spawns import AnimalManager
 from crafting_system import CraftingSystem, CRAFTING_RECIPES  # NUEVO
 from furnace_system import FurnaceSystem, SMELTING_RECIPES, COMBUSTIBLES  # NUEVO
 from missions_system import MissionSystem  # NUEVO: Sistema de misiones
+from lluviaFX import LluviaFX         # ondas/impactos de lluvia (overlay)
+from nubladoFX import NubladoFX       # sombras de nubes con viento (overlay)
 
 # ----------------- Config -----------------
 
@@ -77,6 +79,19 @@ class Game:
         self.res_index = initial_res_index
         self.screen_w, self.screen_h = RESOLUTIONS[self.res_index]
         self.scene_w, self.scene_h = self.screen_w * 5, self.screen_h * 5
+
+        # --- EFECTOS CLIMÁTICOS (overlay pantalla) ---
+        self.fx_rain = LluviaFX(self.screen_w, self.screen_h)
+        self.fx_clouds = NubladoFX(self.screen_w, self.screen_h)
+
+        # Configuración inicial de clima por escena
+        self.weather_cfg = {
+            "rain":  {1: 0.15, 2: 0.45, 3: 0.25, 4: 0.10},  # intensidad lluvia (0–1)
+            "cloud": {1: 0.30, 2: 0.55, 3: 0.65, 4: 0.50},  # nubosidad (0–1)
+            "wind_speed": {1: 2.0, 2: 4.0, 3: 3.0, 4: 2.5},
+            "wind_angle": {1: 0.0, 2: 0.9, 3: -0.5, 4: 1.6},
+        }
+
 
         init_window(self.screen_w, self.screen_h, "ASTRA - NASA Space Apps")
         set_exit_key(0)
@@ -624,6 +639,21 @@ class Game:
             self.camera.target = Vector2(self.player.position.x, self.player.position.y)
             self._clamp_camera_to_scene()
 
+            # (esto está dentro de def _update, después de clamping de cámara)
+            if self.state == STATE_PLAY and not self.loading:
+                sid = self.active_scene_index + 1
+
+                rain_intensity = self.weather_cfg["rain"].get(sid, 0.0)
+                cloudiness    = self.weather_cfg["cloud"].get(sid, 0.0)
+                wind_speed    = self.weather_cfg["wind_speed"].get(sid, 2.0)
+                wind_angle    = self.weather_cfg["wind_angle"].get(sid, 0.0)
+
+                # Actualizar simulaciones
+                self.fx_rain.update(dt, rain_intensity)
+                self.fx_clouds.update(dt, cloudiness, wind_speed, wind_angle)
+
+
+
         # NUEVO: Actualizar horno siempre (incluso si el menú está cerrado)
         if self.state == STATE_PLAY and not self.loading and not self.player_dead:
             self.furnace.update(dt)
@@ -939,6 +969,8 @@ class Game:
             self._clamp_camera_to_scene()
             self._setup_cabins()
             self._setup_crafting_stations()
+            self.fx_rain  = LluviaFX(self.screen_w, self.screen_h)
+            self.fx_clouds = NubladoFX(self.screen_w, self.screen_h)
 
     def _handle_window_resize(self) -> None:
         new_w = get_screen_width()
@@ -983,6 +1015,11 @@ class Game:
         self.player.draw()
         self.spawns.update(self.active_scene_index, self.player.position)
         end_mode_2d()
+
+        # --- Dibujar efectos climáticos (en orden) ---
+        self.fx_clouds.draw()   # fondo de nubes
+        self.fx_rain.draw()     # lluvia encima
+
 
         self._apply_brightness_overlay()
         self._draw_hud(fsz)
