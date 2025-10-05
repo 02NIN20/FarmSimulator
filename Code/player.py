@@ -73,6 +73,9 @@ class Player:
         self._frame_idle_up: Optional[Texture2D] = None
         self._frame_idle_down: Optional[Texture2D] = None
 
+        # >>> NUEVO: idle por defecto cuando no hay movimiento <<<
+        self._frame_idle_default: Optional[Texture2D] = None
+
         self._visual_height: float = 100
         self._feet_offset: float = 8.0
         self._anim_base_fps: float = 7.0
@@ -102,9 +105,6 @@ class Player:
         ]
 
         # Si quieres sprites arriba/abajo, agrega solo el nombre de archivo aquí (misma lógica)
-        # Ejemplo:
-        # up_files = ["DenisseSprites_ARRIBA_01.png", "DenisseSprites_ARRIBA_02.png", ...]
-        # down_files = ["DenisseSprites_ABAJO_01.png", "DenisseSprites_ABAJO_02.png", ...]
         up_files = [
             "DenisseSprites_BACK_01.png",
             "DenisseSprites_BACK_02.png",
@@ -140,9 +140,38 @@ class Player:
         self._frame_idle_up   = self._frames_up[0]    if self._frames_up    else None
         self._frame_idle_down = self._frames_down[0]  if self._frames_down  else None
 
+        # >>> NUEVO: intentar cargar un idle "global" por defecto para quieto <<<
+        # Se intentan nombres comunes; si quieres uno específico, usa set_idle_default().
+        # Dejar en caso de querer tener una pequeña animación al estar quieto como respirar y eso
+        idle_candidates = [
+            "DenisseSprites_NoMove.png",
+            # fallback “aceptable”: usar primer frame frontal como default si existe
+            "DenisseSprites_FRONT_01.png",
+        ]
+        self._frame_idle_default = _try_load_texture_many(
+            [p for fn in idle_candidates for p in _paths_variants(fn)]
+        )
+
         if not self._frames_right or not self._frames_left:
             print("[PLAYER] Aviso: no se encontraron todos los sprites (derecha/izquierda).")
-        # notas: no hago print extra para arriba/abajo para no spam; puedes chequear si quieres.
+
+    def set_idle_default(self, filename: str) -> None:
+        """
+        (Opcional) Permite fijar el asset de idle por defecto en runtime:
+        player.set_idle_default('mi_idle.png')
+        """
+        try:
+            tex = _try_load_texture_many(_paths_variants(filename))
+            if tex:
+                # liberar el anterior si existía
+                if self._frame_idle_default is not None:
+                    try: unload_texture(self._frame_idle_default)
+                    except Exception: pass
+                self._frame_idle_default = tex
+            else:
+                print(f"[PLAYER] No se encontró idle por defecto: {filename}")
+        except Exception as e:
+            print(f"[PLAYER] Error cargando idle por defecto '{filename}': {e}")
 
     def unload(self) -> None:
         for t in self._frames_right:
@@ -157,6 +186,12 @@ class Player:
         for t in self._frames_down:
             try: unload_texture(t)
             except Exception: pass
+
+        # >>> NUEVO: liberar idle por defecto <<<
+        if self._frame_idle_default is not None:
+            try: unload_texture(self._frame_idle_default)
+            except Exception: pass
+            self._frame_idle_default = None
 
         self._frames_right.clear()
         self._frames_left.clear()
@@ -294,7 +329,12 @@ class Player:
         - Si el movimiento vertical domina (|vy| > |vx| y es > 0.1), usa arriba/abajo.
         - Si el movimiento horizontal domina, usa derecha/izquierda según _facing_right.
         - Si no hay frames para la dirección elegida, hace fallback al idle apropiado o a la otra dirección.
+        - >>> NUEVO: si NO se está moviendo y existe un idle por defecto, usarlo primero. <<<
         """
+        # Si no hay movimiento, priorizar idle por defecto global (si existe)
+        if not self._moving and self._frame_idle_default is not None:
+            return self._frame_idle_default
+
         # Determinamos si usar vertical o horizontal según ultimo vector de movimiento
         vx = self._last_move_vx
         vy = self._last_move_vy
