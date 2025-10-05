@@ -217,6 +217,7 @@ class Game:
         self.summer_texture: Optional[Texture2D] = None   # NUEVO
         self.autumn_texture: Optional[Texture2D] = None   # NUEVO
         self.winter_texture: Optional[Texture2D] = None   # NUEVO
+        self.logo_astra: Optional[Texture2D] = None
         self._load_assets()
 
         # Menú principal
@@ -403,6 +404,11 @@ class Game:
             self.winter_texture = load_texture("assets/menu_invierno.png")
         except Exception:
             self.winter_texture = None
+
+        try:
+            self.logo_astra = load_texture("Assets/astra.png")
+        except Exception:
+            self.logo_astra = None
     def _unload_assets(self) -> None:
         if self.custom_font is not None:
             unload_font(self.custom_font)
@@ -422,6 +428,8 @@ class Game:
         if self.winter_texture is not None:
             unload_texture(self.winter_texture)
             self.winter_texture = None
+        # Logo ASTRA (reemplazo del título de texto en el menú)
+        
 
     try:
         if hasattr(self.spawns, "unload_assets"):
@@ -951,11 +959,29 @@ class Game:
         base_fs = fsz(64)
         pulse = 1.0 + 0.02 * sin(t * 2.1)
         fs = int(base_fs * pulse)
-        title = "ASTRA"
-        tx = (self.screen_w - measure_text(title, fs)) // 2
-        ty = int(self.screen_h * 0.12)
-        self._draw_text_custom(title, tx + 2, ty + 2, fs, Color(0, 0, 0, 90))
-        self._draw_text_custom(title, tx, ty, fs, Color(25, 102, 204, 255))
+
+        # --- Dibujo del logo ASTRA como imagen ---
+        # --- Dibujo del logo ASTRA como imagen ---
+        if getattr(self, "logo_astra", None):
+            tex = self.logo_astra
+            # Escala proporcional: ocupa ~50% del ancho o ~25% del alto, lo que limite primero
+            scale = min(self.screen_w * 0.5 / tex.width, self.screen_h * 0.25 / tex.height)
+            draw_w = int(tex.width * scale)
+            draw_h = int(tex.height * scale)
+            draw_x = (self.screen_w - draw_w) // 2
+            draw_y = int(self.screen_h * 0.12)
+            draw_texture_ex(tex, Vector2(draw_x, draw_y), 0.0, scale, WHITE)
+            # <<< IMPORTANTE: define ty para posicionar el menú bajo el logo
+            ty = draw_y + draw_h
+        else:
+            # Fallback: texto si falta la imagen
+            title = "ASTRA"
+            tx = (self.screen_w - measure_text(title, fs)) // 2
+            ty = int(self.screen_h * 0.12)
+            self._draw_text_custom(title, tx + 2, ty + 2, fs, Color(0, 0, 0, 90))
+            self._draw_text_custom(title, tx, ty, fs, Color(25, 102, 204, 255))
+
+
 
         labels = ["Jugar", "Configuración", "Créditos", "Salir"]
         bw = int(min(self.screen_w * 0.35, 420))
@@ -1154,9 +1180,8 @@ class Game:
         self._draw_text_custom("CRÉDITOS", x + 16, y + 14, fsz(28), BLACK)
         fs = fsz(18)
         lines = [
-            "Astra – NASA Space Apps Challenge", "",
-            "Diseño y desarrollo: Equipo Astra",
-            "Arte y UI: Denisse (personaje, mapas y HUD)",
+            "Astra – NASA Space Apps Challenge 2025", "",
+            "Diseño de desarrollo y arte: Equipo Aeterna UD",
             "Tecnologías: Python + raylib (pyray)",
         ]
         ty = y + 64

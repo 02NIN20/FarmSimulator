@@ -3,10 +3,10 @@
   "name": "hola",
   "scene_index": 2,
   "player": {
-    "x": 1460.8587646484375,
-    "y": 1084.3641357421875
+    "x": 3098.263916015625,
+    "y": 2075.19287109375
   },
-  "clock_elapsed": 2173.581268457696,
+  "clock_elapsed": 2631.6551592405885,
   "seconds_per_day": 300.0,
   "inventory": {
     "rows": 4,
@@ -65,9 +65,10 @@
   "missions": {
     "visited": [
       1,
-      2
+      2,
+      3
     ],
-    "slept": 20,
+    "slept": 24,
     "flags": {
       "opened_missions": false
     },
@@ -89,7 +90,7 @@
       },
       {
         "id": "survey_regions",
-        "completed": false,
+        "completed": true,
         "claimed": false
       },
       {
@@ -189,7 +190,7 @@
       },
       {
         "id": "mini_visit_ppr",
-        "completed": false,
+        "completed": true,
         "claimed": false
       },
       {
@@ -216,5 +217,5 @@
     "selected": 0,
     "open": false
   },
-  "updated": "2025-10-05 06:34:07"
+  "updated": "2025-10-05 07:47:30"
 }
