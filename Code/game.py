@@ -233,18 +233,29 @@ class Game:
         MICH_LAND    = Color( 92, 150, 110, 255)
 
         s1 = self._make_scene(1, LOCAL_LAND)
-        s2 = Scene(2, Vector2(self.scene_w, self.scene_h), ALASKA_LAND,
-                   Vector2(self.scene_w*0.5, self.scene_h*0.5),
-                   grid_cell_size=48, grid_enabled=True,
-                   polygon_norm=zone2_alaska_polygon(), land_color=ALASKA_LAND)
-        s3 = Scene(3, Vector2(self.scene_w, self.scene_h), PPR_LAND,
-                   Vector2(self.scene_w*0.5, self.scene_h*0.5),
-                   grid_cell_size=48, grid_enabled=True,
-                   polygon_norm=zone3_ppr_polygon(), land_color=PPR_LAND)
-        s4 = Scene(4, Vector2(self.scene_w, self.scene_h), MICH_LAND,
-                   Vector2(self.scene_w*0.5, self.scene_h*0.5),
-                   grid_cell_size=48, grid_enabled=True,
-                   polygon_norm=zone4_michigan_polygon(), land_color=MICH_LAND)
+        s2 = Scene(
+        2, Vector2(self.scene_w, self.scene_h), ALASKA_LAND,
+        Vector2(self.scene_w*0.5, self.scene_h*0.5),
+        grid_cell_size=48, grid_enabled=True,
+        polygon_norm=zone2_alaska_polygon(), land_color=ALASKA_LAND,
+        background_path="assets/plantilla_mundo_1.png"  # <-- ya lo tenías
+        )
+
+        s3 = Scene(
+            3, Vector2(self.scene_w, self.scene_h), PPR_LAND,
+            Vector2(self.scene_w*0.5, self.scene_h*0.5),
+            grid_cell_size=48, grid_enabled=True,
+            polygon_norm=zone3_ppr_polygon(), land_color=PPR_LAND,
+            background_path="assets/plantilla_mundo_2.png"  # <-- NUEVO
+        )
+
+        s4 = Scene(
+            4, Vector2(self.scene_w, self.scene_h), MICH_LAND,
+            Vector2(self.scene_w*0.5, self.scene_h*0.5),
+            grid_cell_size=48, grid_enabled=True,
+            polygon_norm=zone4_michigan_polygon(), land_color=MICH_LAND,
+            background_path="assets/plantilla_mundo_3.png"  # <-- NUEVO
+        )
         return [s1, s2, s3, s4]
 
     def _load_assets(self) -> None:
@@ -1060,7 +1071,7 @@ class Game:
         try:
             it = getattr(slot, "item", None)
             if it is not None:
-                it_id = getattr(it, "id", getattr(it, "name", None))
+                it_id = getattr(it, "item_id", getattr(it, "id", getattr(it, "name", None)))
                 qty = int(getattr(slot, "quantity", getattr(slot, "qty", getattr(slot, "count", 1))))
                 if it_id:
                     return (str(it_id), qty)
