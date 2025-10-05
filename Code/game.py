@@ -161,6 +161,9 @@ class Game:
         self.custom_font: Optional[Font] = None
         self.loading_texture: Optional[Texture2D] = None
         self.spring_texture: Optional[Texture2D] = None
+        self.summer_texture: Optional[Texture2D] = None   # NUEVO
+        self.autumn_texture: Optional[Texture2D] = None   # NUEVO
+        self.winter_texture: Optional[Texture2D] = None   # NUEVO
         self._load_assets()
 
         # Menú principal
@@ -286,10 +289,21 @@ class Game:
                 self.loading_texture = None
 
         try:
-            self.spring_texture = load_texture("assets/apertura.png")
+            self.spring_texture = load_texture("assets/menu_primavera.png")
         except Exception:
             self.spring_texture = None
-
+        try:
+            self.summer_texture = load_texture("assets/menu_verano.png")
+        except Exception:
+            self.summer_texture = None
+        try:
+            self.autumn_texture = load_texture("assets/menu_otono.png")
+        except Exception:
+            self.autumn_texture = None
+        try:
+            self.winter_texture = load_texture("assets/menu_invierno.png")
+        except Exception:
+            self.winter_texture = None
     def _unload_assets(self) -> None:
         if self.custom_font is not None:
             unload_font(self.custom_font)
@@ -300,7 +314,15 @@ class Game:
         if self.spring_texture is not None:
             unload_texture(self.spring_texture)
             self.spring_texture = None
-
+        if self.summer_texture is not None:
+            unload_texture(self.summer_texture)
+            self.summer_texture = None
+        if self.autumn_texture is not None:
+            unload_texture(self.autumn_texture)
+            self.autumn_texture = None
+        if self.winter_texture is not None:
+            unload_texture(self.winter_texture)
+            self.winter_texture = None
     # ---------- loop ----------
     def run(self) -> None:
         while self.running and not window_should_close():
@@ -827,27 +849,50 @@ class Game:
     def _draw_menu_background(self) -> None:
         theme = self.main_menu.get("theme", "Primavera")
 
+        def _draw_tex_fullscreen(tex: Texture2D):
+            # Si la textura no está cargada correctamente, salimos y evitamos división por cero
+            if tex is None or tex.width == 0 or tex.height == 0:
+                return False  # Devuelve False para indicar que no se dibujó
+
+            scale = min(self.screen_w / tex.width, self.screen_h / tex.height)
+            draw_w = int(tex.width * scale)
+            draw_h = int(tex.height * scale)
+            draw_x = (self.screen_w - draw_w) // 2
+            draw_y = (self.screen_h - draw_h) // 2
+            draw_texture_ex(tex, Vector2(draw_x, draw_y), 0.0, scale, WHITE)
+            return True
+
         if theme == "Primavera":
             if self.spring_texture is not None:
-                tex = self.spring_texture
-                scale = min(self.screen_w / tex.width, self.screen_h / tex.height)
-                draw_w = int(tex.width * scale)
-                draw_h = int(tex.height * scale)
-                draw_x = (self.screen_w - draw_w) // 2
-                draw_y = (self.screen_h - draw_h) // 2
-                draw_texture_ex(tex, Vector2(draw_x, draw_y), 0.0, scale, WHITE)
+                _draw_tex_fullscreen(self.spring_texture)
             else:
-                draw_rectangle_gradient_v(0, 0, self.screen_w, self.screen_h, Color(224,238,224,255), Color(205,228,205,255))
+                draw_rectangle_gradient_v(0, 0, self.screen_w, self.screen_h,
+                                        Color(224,238,224,255), Color(205,228,205,255))
             grid_c = Color(80,120,90,25)
+
         elif theme == "Verano":
-            draw_rectangle_gradient_v(0, 0, self.screen_w, self.screen_h, Color(210,232,252,255), Color(158,203,251,255))
-            draw_circle(self.screen_w - 150, 120, 90, Color(255, 240, 180, 40))
+            if self.summer_texture is not None:
+                _draw_tex_fullscreen(self.summer_texture)
+            else:
+                draw_rectangle_gradient_v(0, 0, self.screen_w, self.screen_h,
+                                        Color(210,232,252,255), Color(158,203,251,255))
+                draw_circle(self.screen_w - 150, 120, 90, Color(255, 240, 180, 40))
             grid_c = Color(60, 90, 130, 22)
+
         elif theme == "Otoño":
-            draw_rectangle_gradient_v(0, 0, self.screen_w, self.screen_h, Color(250,230,200,255), Color(224,186,120,255))
+            if self.autumn_texture is not None:
+                _draw_tex_fullscreen(self.autumn_texture)
+            else:
+                draw_rectangle_gradient_v(0, 0, self.screen_w, self.screen_h,
+                                        Color(250,230,200,255), Color(224,186,120,255))
             grid_c = Color(120,70,30,28)
-        else:
-            draw_rectangle_gradient_v(0, 0, self.screen_w, self.screen_h, Color(226,236,246,255), Color(200,218,238,255))
+
+        else:  # Invierno
+            if self.winter_texture is not None:
+                _draw_tex_fullscreen(self.winter_texture)
+            else:
+                draw_rectangle_gradient_v(0, 0, self.screen_w, self.screen_h,
+                                        Color(226,236,246,255), Color(200,218,238,255))
             grid_c = Color(60,90,120,25)
 
         cell = max(48, int(self.screen_h * 0.08))
