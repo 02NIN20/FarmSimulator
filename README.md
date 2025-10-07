@@ -33,6 +33,7 @@ Etapas proximas a entregar en el apartado gráfico:
 
 7. Carga de escenarios
 
-8. Físicas y conexión con datos 
-
-9. Extras 
+8. Físicas y conexión con datos
+    03/10/2025 Lucas: Creo bases de datos y metodos para extraerlas de los satetiles y BD de la NASA
+    04/10/2025 Lucas: Unio la base de datos, con su manejo y analisis propio a el resto del proyecto    
+10. Extras 
